@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QueryForge — CSV to SQL INSERT Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Bricolage+Grotesque:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink: '#0a0b0d',
+          panel: '#111318',
+          panel2: '#171a21',
+          line: '#262a33',
+          lime: '#c8ff4d',
+          amber: '#ffb703',
+          bad: '#ff5c5c',
+        },
+        fontFamily: {
+          mono: ['JetBrains Mono', 'monospace'],
+          display: ['Bricolage Grotesque', 'sans-serif'],
+        },
+      },
+    },
+  };
+</script>
+<style>
+  body {
+    background-color: #0a0b0d;
+    background-image:
+      linear-gradient(rgba(200,255,77,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(200,255,77,0.035) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+  .glow {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background: radial-gradient(600px circle at 15% 0%, rgba(200,255,77,0.08), transparent 60%),
+                radial-gradient(500px circle at 100% 30%, rgba(255,183,3,0.06), transparent 60%);
+  }
+  ::-webkit-scrollbar { height: 10px; width: 10px; }
+  ::-webkit-scrollbar-track { background: #111318; }
+  ::-webkit-scrollbar-thumb { background: #2c313c; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4150; }
+  .step-num {
+    font-family: 'Bricolage Grotesque', sans-serif;
+  }
+  select, input[type="number"], input[type="text"] {
+    color-scheme: dark;
+  }
+  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+  .caret { animation: blink 1s step-end infinite; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .rise { animation: rise 0.35s ease-out both; }
+  .tag-dot::before {
+    content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 999px;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+  }
+</style>
+</head>
+<body class="min-h-screen text-slate-200 font-mono relative">
+<div class="glow"></div>
+
+<div class="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+
+  <!-- HEADER -->
+  <header class="mb-8 md:mb-12 rise">
+    <div class="flex items-center gap-2 text-lime text-xs tracking-[0.3em] uppercase mb-3">
+      <span class="w-2 h-2 rounded-full bg-lime"></span> Local &middot; No data leaves your browser
+    </div>
+    <h1 class="font-display font-800 text-3xl sm:text-4xl md:text-5xl text-white tracking-tight">
+      Query<span class="text-lime">Forge</span><span class="caret text-lime">_</span>
+    </h1>
+    <p class="text-slate-400 mt-2 text-sm md:text-base max-w-2xl">
+      Ubah data CSV menjadi query <span class="text-lime">INSERT SQL</span> siap pakai. Tempel struktur tabel, unggah CSV, cocokkan kolom, lalu generate — bisa dibatasi per baris dan dipecah per batch.
+    </p>
+  </header>
+
+  <!-- LOAD EXAMPLE -->
+  <div class="mb-8 flex flex-wrap items-center gap-3 rise">
+    <button id="btnLoadExample" class="px-4 py-2 bg-panel2 border border-line hover:border-lime text-slate-300 hover:text-lime text-xs uppercase tracking-wider transition-colors">
+      ⚡ Muat Contoh Data (tabel users)
+    </button>
+    <button id="btnReset" class="px-4 py-2 bg-panel2 border border-line hover:border-bad text-slate-300 hover:text-bad text-xs uppercase tracking-wider transition-colors">
+      ↺ Reset Semua
+    </button>
+    <span class="text-xs text-slate-500">Gunakan tombol contoh untuk langsung mencoba tool ini.</span>
+  </div>
+
+  <!-- STEP 1 & 2 : side by side on desktop -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+
+    <!-- STEP 1: DDL -->
+    <section class="bg-panel border border-line rounded-lg p-5 rise">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="step-num text-lime font-800 text-lg">01</span>
+        <h2 class="font-display font-700 text-white text-lg">Struktur Tabel (CREATE TABLE)</h2>
+      </div>
+      <p class="text-xs text-slate-500 mb-3">Tempel DDL <code class="text-lime">CREATE TABLE</code> dari database kamu.</p>
+      <textarea id="ddlInput" rows="9" spellcheck="false"
+        class="w-full bg-ink border border-line focus:border-lime outline-none rounded-md p-3 text-xs text-slate-300 resize-y placeholder:text-slate-600"
+        placeholder="CREATE TABLE `users` (&#10;  `id` varchar(36) NOT NULL,&#10;  `name` varchar(255) NOT NULL,&#10;  ...&#10;);"></textarea>
+      <button id="btnParseDDL" class="mt-3 w-full py-2.5 bg-lime text-ink font-600 text-xs uppercase tracking-wider rounded-md hover:brightness-110 transition">
+        Parse Struktur Tabel →
+      </button>
+      <div id="ddlStatus" class="mt-2 text-xs"></div>
+    </section>
+
+    <!-- STEP 2: CSV -->
+    <section class="bg-panel border border-line rounded-lg p-5 rise">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="step-num text-amber font-800 text-lg">02</span>
+        <h2 class="font-display font-700 text-white text-lg">Data CSV</h2>
+      </div>
+
+      <div class="flex gap-2 mb-3 text-xs">
+        <button id="tabUpload" class="flex-1 py-2 border border-line bg-panel2 text-white rounded-md">📁 Upload File</button>
+        <button id="tabPaste" class="flex-1 py-2 border border-line text-slate-400 rounded-md">📋 Tempel Teks CSV</button>
+      </div>
+
+      <div id="csvUploadPane">
+        <label for="csvFile" class="flex flex-col items-center justify-center gap-2 border border-dashed border-line hover:border-amber rounded-md py-7 cursor-pointer text-center transition-colors">
+          <span class="text-2xl">⤒</span>
+          <span class="text-xs text-slate-400">Klik untuk pilih file <span class="text-amber">.csv</span></span>
+          <span id="csvFileName" class="text-xs text-slate-600"></span>
+        </label>
+        <input type="file" id="csvFile" accept=".csv,text/csv" class="hidden">
+      </div>
+
+      <div id="csvPastePane" class="hidden">
+        <textarea id="csvTextInput" rows="9" spellcheck="false"
+          class="w-full bg-ink border border-line focus:border-amber outline-none rounded-md p-3 text-xs text-slate-300 resize-y placeholder:text-slate-600"
+          placeholder="NAMA,NO.TELP,EMAIL&#10;HANOVERTARIGAN,0801346213273,"></textarea>
+      </div>
+
+      <button id="btnParseCSV" class="mt-3 w-full py-2.5 bg-amber text-ink font-600 text-xs uppercase tracking-wider rounded-md hover:brightness-110 transition">
+        Baca Data CSV →
+      </button>
+      <div id="csvStatus" class="mt-2 text-xs"></div>
+    </section>
+  </div>
+
+  <!-- TABLE STRUCTURE INFO -->
+  <section id="tableInfoSection" class="hidden bg-panel border border-line rounded-lg p-5 mb-5 rise">
+    <h3 class="font-display font-700 text-white text-sm mb-3 flex items-center gap-2">
+      <span class="text-lime">▤</span> Kolom Tabel <span id="tableNameBadge" class="text-lime"></span>
+    </h3>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-slate-500 border-b border-line text-left uppercase tracking-wider">
+            <th class="py-2 pr-4">Kolom</th>
+            <th class="py-2 pr-4">Tipe Data</th>
+            <th class="py-2 pr-4">Nullable</th>
+            <th class="py-2 pr-4">Default</th>
+            <th class="py-2 pr-4">Key</th>
+          </tr>
+        </thead>
+        <tbody id="tableInfoBody" class="divide-y divide-line/60"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CSV PREVIEW -->
+  <section id="csvPreviewSection" class="hidden bg-panel border border-line rounded-lg p-5 mb-5 rise">
+    <h3 class="font-display font-700 text-white text-sm mb-3 flex items-center gap-2">
+      <span class="text-amber">▤</span> Pratinjau CSV <span id="csvRowCountBadge" class="text-amber"></span>
+    </h3>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead><tr id="csvPreviewHead" class="text-slate-500 border-b border-line text-left uppercase tracking-wider"></tr></thead>
+        <tbody id="csvPreviewBody" class="divide-y divide-line/60"></tbody>
+      </table>
+    </div>
+    <p class="text-slate-600 text-xs mt-2">Menampilkan maksimal 5 baris pertama.</p>
+  </section>
+
+  <!-- STEP 3: MAPPING -->
+  <section id="mappingSection" class="hidden bg-panel border border-line rounded-lg p-5 mb-5 rise">
+    <div class="flex items-center gap-3 mb-1">
+      <span class="step-num text-lime font-800 text-lg">03</span>
+      <h2 class="font-display font-700 text-white text-lg">Cocokkan Kolom CSV → Kolom Database</h2>
+    </div>
+    <p class="text-xs text-slate-500 mb-4">Setiap header CSV dipetakan ke satu kolom tabel. Header yang cocok otomatis terisi — periksa kembali sebelum generate.</p>
+    <div id="mappingRows" class="space-y-2"></div>
+
+    <div class="mt-5 pt-4 border-t border-line">
+      <h4 class="text-xs uppercase tracking-wider text-slate-500 mb-3">Kolom yang akan dimasukkan ke query</h4>
+      <div id="outputColumnSelectionList" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+    </div>
+
+    <div class="mt-5 pt-4 border-t border-line">
+      <h4 class="text-xs uppercase tracking-wider text-slate-500 mb-3">Kolom Otomatis (tidak berasal dari CSV)</h4>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <label id="autoUuidWrap" class="hidden flex items-center gap-2 bg-ink border border-line rounded-md p-3 cursor-pointer">
+          <input type="checkbox" id="autoUuid" class="accent-lime w-4 h-4">
+          <span class="text-xs text-slate-300">Auto-generate <code class="text-lime" id="autoUuidColName">id</code> dengan <code class="text-lime">UUID()</code></span>
+        </label>
+        <label id="autoTimestampWrap" class="hidden flex items-center gap-2 bg-ink border border-line rounded-md p-3 cursor-pointer">
+          <input type="checkbox" id="autoTimestamp" class="accent-lime w-4 h-4">
+          <span class="text-xs text-slate-300">Set <code class="text-lime" id="autoTimestampColName">created_at/updated_at</code> dengan <code class="text-lime">NOW()</code></span>
+        </label>
+      </div>
+    </div>
+
+    <div id="mappingWarnings" class="mt-4 space-y-1"></div>
+  </section>
+
+  <!-- STEP 4: GENERATE SETTINGS -->
+  <section id="generateSection" class="hidden bg-panel border border-line rounded-lg p-5 mb-5 rise">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="step-num text-amber font-800 text-lg">04</span>
+      <h2 class="font-display font-700 text-white text-lg">Pengaturan &amp; Generate</h2>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div>
+        <label class="block text-xs text-slate-500 mb-1.5">Baris mulai dari</label>
+        <input type="number" id="rowStart" min="1" value="1" class="w-full bg-ink border border-line focus:border-amber outline-none rounded-md p-2.5 text-sm text-white">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-500 mb-1.5">Baris sampai</label>
+        <input type="number" id="rowEnd" min="1" value="1" class="w-full bg-ink border border-line focus:border-amber outline-none rounded-md p-2.5 text-sm text-white">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-500 mb-1.5">Baris per query (batch)</label>
+        <input type="number" id="batchSize" min="1" value="100" class="w-full bg-ink border border-line focus:border-amber outline-none rounded-md p-2.5 text-sm text-white">
+      </div>
+      <div class="flex items-end">
+        <button id="btnGenerate" class="w-full py-2.5 bg-lime text-ink font-600 text-xs uppercase tracking-wider rounded-md hover:brightness-110 transition">
+          ⚙ Generate Query
+        </button>
+      </div>
+    </div>
+
+    <div class="mt-4 pt-4 border-t border-line">
+      <label class="block text-xs text-slate-500 mb-2">Cek duplikasi untuk kolom (opsional)</label>
+      <div id="duplicateColumnChecklist" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+      <div id="duplicateCheckSummary" class="mt-2"></div>
+      <p class="text-[11px] text-slate-600 mt-2">Pilih kolom yang wajib unik, misalnya phone. Jika ada duplikasi, generator akan menghentikan proses dan menampilkan baris yang bermasalah.</p>
+    </div>
+
+    <p class="text-xs text-slate-600 mt-2">Total baris data tersedia: <span id="totalRowsHint" class="text-slate-400">0</span></p>
+  </section>
+
+  <!-- STEP 5: RESULT -->
+  <section id="resultSection" class="hidden bg-panel border border-line rounded-lg p-5 mb-5 rise">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="step-num text-white font-800 text-lg">05</span>
+      <h2 class="font-display font-700 text-white text-lg">Hasil Query</h2>
+    </div>
+
+    <div id="resultSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-xs"></div>
+
+    <div class="flex flex-wrap gap-2 mb-3">
+      <button id="btnCopy" class="px-4 py-2 bg-panel2 border border-line hover:border-lime text-slate-300 hover:text-lime text-xs uppercase tracking-wider transition-colors">⧉ Copy Semua</button>
+      <button id="btnDownload" class="px-4 py-2 bg-panel2 border border-line hover:border-amber text-slate-300 hover:text-amber text-xs uppercase tracking-wider transition-colors">⭳ Download .sql</button>
+    </div>
+
+    <div id="batchCopyActions" class="flex flex-wrap gap-2 mb-3"></div>
+
+    <pre id="resultOutput" class="bg-ink border border-line rounded-md p-4 text-xs text-lime/90 overflow-auto max-h-[480px] whitespace-pre-wrap break-words"></pre>
+  </section>
+
+  <footer class="text-center text-slate-700 text-xs mt-10 pb-4">
+    QueryForge — semua parsing &amp; generate dilakukan di browser kamu, tidak ada data yang dikirim ke server manapun.
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ============================================================
+  // STATE
+  // ============================================================
+  const state = {
+    tableName: 'table_name',
+    columns: [],       // parsed DB columns
+    csvHeaders: [],     // csv header strings
+    csvRows: [],        // array of arrays (raw string values)
+    mapping: {},         // { csvHeaderIndex: dbColumnName | '' }
+    outputColumnSelection: {},
+    duplicateCheckColumns: [],
+    lastGeneratedBatches: [],
+    idColumn: null,
+    timestampColumns: [],
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+  function initializeOutputSelection() {
+    const next = {};
+    state.columns.forEach((col) => {
+      next[col.name] = Object.prototype.hasOwnProperty.call(state.outputColumnSelection, col.name)
+        ? state.outputColumnSelection[col.name]
+        : true;
+    });
+    state.outputColumnSelection = next;
+  }
+
+  function renderOutputColumnSelection() {
+    const list = $('outputColumnSelectionList');
+    if (!state.columns.length) {
+      list.innerHTML = '';
+      return;
+    }
+
+    list.innerHTML = state.columns.map((col) => {
+      const checked = state.outputColumnSelection[col.name] !== false;
+      return `
+        <label class="flex items-center gap-2 bg-ink border border-line rounded-md p-2.5 cursor-pointer">
+          <input type="checkbox" class="accent-lime w-4 h-4 output-column-toggle" data-column="${col.name}" ${checked ? 'checked' : ''}>
+          <span class="text-xs text-slate-300">
+            <span class="text-white">${col.name}</span>
+            <span class="text-slate-600 ml-1">(${col.fullType})</span>
+          </span>
+        </label>
+      `;
+    }).join('');
+
+    document.querySelectorAll('.output-column-toggle').forEach((box) => {
+      box.addEventListener('change', (e) => {
+        const colName = e.target.dataset.column;
+        state.outputColumnSelection[colName] = e.target.checked;
+        renderMappingWarnings();
+      });
+    });
+  }
+
+  function renderDuplicateColumnChecklist() {
+    const list = $('duplicateColumnChecklist');
+    if (!state.columns.length) {
+      list.innerHTML = '';
+      return;
+    }
+
+    list.innerHTML = state.columns.map((col) => {
+      const checked = state.duplicateCheckColumns.includes(col.name);
+      return `
+        <label class="flex items-center gap-2 bg-ink border border-line rounded-md p-2.5 cursor-pointer">
+          <input type="checkbox" class="accent-amber w-4 h-4 duplicate-column-toggle" data-column="${col.name}" ${checked ? 'checked' : ''}>
+          <span class="text-xs text-slate-300">
+            <span class="text-white">${col.name}</span>
+            <span class="text-slate-600 ml-1">(${col.fullType})</span>
+          </span>
+        </label>
+      `;
+    }).join('');
+
+    document.querySelectorAll('.duplicate-column-toggle').forEach((box) => {
+      box.addEventListener('change', (e) => {
+        const colName = e.target.dataset.column;
+        if (e.target.checked) {
+          if (!state.duplicateCheckColumns.includes(colName)) state.duplicateCheckColumns.push(colName);
+        } else {
+          state.duplicateCheckColumns = state.duplicateCheckColumns.filter((name) => name !== colName);
+        }
+        renderDuplicateSummary('');
+      });
+    });
+  }
+
+  function renderDuplicateSummary(message, type = 'info') {
+    const el = $('duplicateCheckSummary');
+    if (!message) {
+      el.innerHTML = '';
+      return;
+    }
+
+    const colorClass = type === 'bad' ? 'text-bad border-bad/30 bg-bad/10' : type === 'success' ? 'text-lime border-lime/30 bg-lime/10' : 'text-slate-400 border-line';
+    el.innerHTML = `<div class="border rounded-md p-2.5 text-xs ${colorClass}">${message}</div>`;
+  }
+
+  function copyTextToClipboard(text, button) {
+    navigator.clipboard.writeText(text).then(() => {
+      const original = button.textContent;
+      button.textContent = '✓ Tersalin!';
+      setTimeout(() => { button.textContent = original; }, 1500);
+    });
+  }
+
+  function renderBatchCopyActions() {
+    const container = $('batchCopyActions');
+    if (!state.lastGeneratedBatches.length) {
+      container.innerHTML = '';
+      return;
+    }
+
+    container.innerHTML = state.lastGeneratedBatches.map((_, index) => `
+      <button type="button" class="copy-batch-btn px-3 py-2 bg-panel2 border border-line hover:border-lime text-slate-300 hover:text-lime text-[11px] uppercase tracking-wider rounded-md transition-colors" data-batch-index="${index}">
+        Copy Batch ${index + 1}
+      </button>
+    `).join('');
+
+    document.querySelectorAll('.copy-batch-btn').forEach((button) => {
+      button.addEventListener('click', () => {
+        const batchIndex = Number(button.dataset.batchIndex);
+        const batchSql = state.lastGeneratedBatches[batchIndex];
+        if (batchSql) copyTextToClipboard(batchSql, button);
+      });
+    });
+  }
+
+  function buildIncludedColumns() {
+    const included = [];
+    state.columns.forEach((col) => {
+      if (state.outputColumnSelection[col.name] === false) return;
+
+      const csvIdx = Object.keys(state.mapping).find((k) => state.mapping[k] === col.name);
+      if (csvIdx !== undefined) {
+        included.push({ name: col.name, source: 'csv', csvIndex: Number(csvIdx), columnRef: col });
+      } else if ($('autoUuid').checked && state.idColumn && col.name === state.idColumn.name) {
+        included.push({ name: col.name, source: 'uuid', columnRef: col });
+      } else if ($('autoTimestamp').checked && state.timestampColumns.some((c) => c.name === col.name)) {
+        included.push({ name: col.name, source: 'now', columnRef: col });
+      }
+    });
+    return included;
+  }
+
+  function normalizeDuplicateValue(value) {
+    return String(value ?? '').trim().toLowerCase();
+  }
+
+  function findDuplicateIssues(rows, startRow) {
+    if (!state.duplicateCheckColumns.length) return [];
+
+    const included = buildIncludedColumns();
+    const issues = [];
+
+    state.duplicateCheckColumns.forEach((colName) => {
+      const includedCol = included.find((item) => item.name === colName);
+      if (!includedCol || includedCol.source !== 'csv') return;
+
+      const seen = new Map();
+      rows.forEach((row, idx) => {
+        const rawVal = row[includedCol.csvIndex];
+        const normalized = normalizeDuplicateValue(rawVal);
+        if (!normalized) return;
+        if (!seen.has(normalized)) seen.set(normalized, []);
+        seen.get(normalized).push(startRow + idx);
+      });
+
+      seen.forEach((rowNumbers, value) => {
+        if (rowNumbers.length > 1) {
+          issues.push({ column: colName, value, rows: rowNumbers });
+        }
+      });
+    });
+
+    return issues;
+  }
+
+  // ============================================================
+  // DDL PARSER
+  // ============================================================
+  class DDLParser {
+    static parse(ddl) {
+      const tableNameMatch = ddl.match(/CREATE\s+TABLE\s+(?:IF NOT EXISTS\s+)?`?(\w+)`?/i);
+      const tableName = tableNameMatch ? tableNameMatch[1] : 'table_name';
+
+      const firstParen = ddl.indexOf('(');
+      if (firstParen === -1) throw new Error('Tidak ditemukan tanda "(" — pastikan format CREATE TABLE valid.');
+
+      let depth = 0, endIdx = -1;
+      for (let i = firstParen; i < ddl.length; i++) {
+        if (ddl[i] === '(') depth++;
+        else if (ddl[i] === ')') { depth--; if (depth === 0) { endIdx = i; break; } }
+      }
+      if (endIdx === -1) throw new Error('Tanda kurung tidak seimbang pada DDL.');
+
+      const body = ddl.slice(firstParen + 1, endIdx);
+      const parts = [];
+      let cur = '', d = 0;
+      for (const ch of body) {
+        if (ch === '(') d++;
+        if (ch === ')') d--;
+        if (ch === ',' && d === 0) { parts.push(cur); cur = ''; }
+        else cur += ch;
+      }
+      if (cur.trim()) parts.push(cur);
+
+      const columns = [];
+      let primaryKey = null;
+
+      parts.forEach((raw, idx) => {
+        const line = raw.trim().replace(/\s+/g, ' ');
+        if (/^PRIMARY\s+KEY/i.test(line)) {
+          const m = line.match(/`(\w+)`/);
+          if (m) primaryKey = m[1];
+          return;
+        }
+        if (/^(UNIQUE\s+)?KEY/i.test(line) || /^CONSTRAINT/i.test(line) || /^FOREIGN\s+KEY/i.test(line) || /^INDEX/i.test(line)) {
+          return;
+        }
+        const colMatch = line.match(/^`(\w+)`\s+([a-zA-Z]+)(\([^)]*\))?\s*(.*)$/);
+        if (!colMatch) return;
+        const [, name, baseType, typeArgs, rest] = colMatch;
+        const notNull = /NOT\s+NULL/i.test(rest);
+        const defaultMatch = rest.match(/DEFAULT\s+('(?:[^'\\]|\\.)*'|\S+)/i);
+        let defaultVal = defaultMatch ? defaultMatch[1] : null;
+        if (defaultVal) {
+          if (/^NULL$/i.test(defaultVal)) defaultVal = null;
+          else defaultVal = defaultVal.replace(/^'|'$/g, '');
+        }
+        columns.push({
+          index: idx,
+          name,
+          baseType: baseType.toLowerCase(),
+          typeArgs: typeArgs || '',
+          fullType: baseType.toLowerCase() + (typeArgs || ''),
+          nullable: !notNull,
+          default: defaultVal,
+          isAutoIncrement: /AUTO_INCREMENT/i.test(rest),
+          isPrimary: false,
+        });
+      });
+
+      if (primaryKey) {
+        const c = columns.find((c) => c.name === primaryKey);
+        if (c) c.isPrimary = true;
+      }
+      if (columns.length === 0) throw new Error('Tidak ada kolom valid yang berhasil dibaca dari DDL.');
+
+      return { tableName, columns };
+    }
+
+    static typeCategory(baseType) {
+      const numeric = ['int', 'bigint', 'smallint', 'tinyint', 'mediumint', 'decimal', 'double', 'float'];
+      const datetime = ['timestamp', 'datetime', 'date', 'time', 'year'];
+      if (numeric.includes(baseType)) return 'numeric';
+      if (datetime.includes(baseType)) return 'datetime';
+      if (baseType === 'enum') return 'enum';
+      return 'string';
+    }
+  }
+
+  // ============================================================
+  // HEADER AUTO-MATCH HEURISTIC
+  // ============================================================
+  class HeaderMatcher {
+    static normalize(s) {
+      return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+
+    static aliases() {
+      return {
+        name: ['nama', 'name', 'namalengkap', 'fullname'],
+        phone: ['notelp', 'telepon', 'telp', 'phone', 'nohp', 'nomorhp', 'whatsapp', 'wa', 'notelepon'],
+        email: ['email', 'mail', 'emailaddress', 'alamatemail'],
+        password: ['password', 'kata sandi', 'katasandi', 'pass'],
+        ota_name: ['otaname', 'nickname'],
+      };
+    }
+
+    static bestMatch(csvHeader, dbColumns) {
+      const norm = this.normalize(csvHeader);
+      const aliases = this.aliases();
+      for (const col of dbColumns) {
+        if (this.normalize(col.name) === norm) return col.name;
+      }
+      for (const col of dbColumns) {
+        const list = aliases[col.name];
+        if (list && list.some((a) => this.normalize(a) === norm)) return col.name;
+      }
+      return '';
+    }
+  }
+
+  // ============================================================
+  // CSV PARSER (via PapaParse)
+  // ============================================================
+  class CSVReader {
+    static parse(text) {
+      const res = Papa.parse(text.trim(), { skipEmptyLines: true });
+      if (!res.data || res.data.length < 1) throw new Error('CSV kosong atau tidak valid.');
+      const headers = res.data[0].map((h) => String(h).trim());
+      const rows = res.data.slice(1).filter((r) => r.some((cell) => String(cell).trim() !== ''));
+      return { headers, rows };
+    }
+  }
+
+  // ============================================================
+  // SQL VALUE FORMATTER
+  // ============================================================
+  class SQLFormatter {
+    static escapeString(val) {
+      return String(val).replace(/'/g, "''");
+    }
+
+    static formatValue(rawValue, column) {
+      const category = DDLParser.typeCategory(column.baseType);
+      const value = rawValue === undefined || rawValue === null ? '' : String(rawValue).trim();
+
+      if (value === '') {
+        if (column.nullable) return 'NULL';
+        if (category === 'numeric') return '0';
+        return "''";
+      }
+
+      if (category === 'numeric') {
+        const cleaned = value.replace(/[^0-9.\-]/g, '');
+        if (cleaned !== '' && !isNaN(Number(cleaned)) && cleaned === value.replace(/^\+/, '')) {
+          return cleaned;
+        }
+        // fallback: keep as quoted string if it isn't purely numeric (protects leading-zero phone-like numbers)
+        return `'${this.escapeString(value)}'`;
+      }
+
+      return `'${this.escapeString(value)}'`;
+    }
+  }
+
+  // ============================================================
+  // QUERY GENERATOR
+  // ============================================================
+  class QueryGenerator {
+    constructor(tableName, includedColumns) {
+      this.tableName = tableName;
+      this.includedColumns = includedColumns; // [{name, source: 'csv'|'uuid'|'now', csvIndex, columnRef}]
+    }
+
+    buildValueTuple(csvRow) {
+      return this.includedColumns.map((col) => {
+        if (col.source === 'uuid') return 'UUID()';
+        if (col.source === 'now') return 'NOW()';
+        const rawVal = csvRow[col.csvIndex];
+        return SQLFormatter.formatValue(rawVal, col.columnRef);
+      });
+    }
+
+    generate(csvRows, startRow, endRow, batchSize) {
+      const startIdx = Math.max(0, startRow - 1);
+      const endIdx = Math.min(csvRows.length, endRow);
+      const selected = csvRows.slice(startIdx, endIdx);
+
+      const colNames = this.includedColumns.map((c) => `\`${c.name}\``).join(', ');
+      const batches = [];
+
+      for (let i = 0; i < selected.length; i += batchSize) {
+        const chunk = selected.slice(i, i + batchSize);
+        const rowStartLabel = startRow + i;
+        const rowEndLabel = Math.min(startRow + i + chunk.length - 1, endRow);
+        const tuples = chunk.map((row) => `  (${this.buildValueTuple(row).join(', ')})`);
+        const stmt =
+          `-- Batch ${batches.length + 1}: baris data ${rowStartLabel} s/d ${rowEndLabel} (${chunk.length} baris)\n` +
+          `INSERT INTO \`${this.tableName}\` (${colNames}) VALUES\n` +
+          tuples.join(',\n') + ';';
+        batches.push(stmt);
+      }
+
+      return { sql: batches.join('\n\n'), batches, batchCount: batches.length, rowCount: selected.length };
+    }
+  }
+
+  // ============================================================
+  // UI WIRING
+  // ============================================================
+
+  // -- Tab switching for CSV input mode --
+  let csvMode = 'upload';
+  $('tabUpload').addEventListener('click', () => {
+    csvMode = 'upload';
+    $('tabUpload').className = 'flex-1 py-2 border border-line bg-panel2 text-white rounded-md';
+    $('tabPaste').className = 'flex-1 py-2 border border-line text-slate-400 rounded-md';
+    $('csvUploadPane').classList.remove('hidden');
+    $('csvPastePane').classList.add('hidden');
+  });
+  $('tabPaste').addEventListener('click', () => {
+    csvMode = 'paste';
+    $('tabPaste').className = 'flex-1 py-2 border border-line bg-panel2 text-white rounded-md';
+    $('tabUpload').className = 'flex-1 py-2 border border-line text-slate-400 rounded-md';
+    $('csvPastePane').classList.remove('hidden');
+    $('csvUploadPane').classList.add('hidden');
+  });
+
+  let uploadedFileText = null;
+  $('csvFile').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    $('csvFileName').textContent = file.name;
+    const reader = new FileReader();
+    reader.onload = (ev) => { uploadedFileText = ev.target.result; };
+    reader.readAsText(file);
+  });
+
+  // -- Step 1: Parse DDL --
+  $('btnParseDDL').addEventListener('click', () => {
+    const ddl = $('ddlInput').value.trim();
+    const statusEl = $('ddlStatus');
+    if (!ddl) {
+      statusEl.innerHTML = '<span class="text-bad">⚠ Tempel dulu DDL CREATE TABLE-nya.</span>';
+      return;
+    }
+    try {
+      const result = DDLParser.parse(ddl);
+      state.tableName = result.tableName;
+      state.columns = result.columns;
+      initializeOutputSelection();
+      renderOutputColumnSelection();
+      renderDuplicateColumnChecklist();
+      statusEl.innerHTML = `<span class="text-lime">✓ Berhasil membaca ${result.columns.length} kolom dari tabel <b>${result.tableName}</b>.</span>`;
+      renderTableInfo();
+      tryRenderMapping();
+    } catch (err) {
+      statusEl.innerHTML = `<span class="text-bad">⚠ ${err.message}</span>`;
+    }
+  });
+
+  // -- Step 2: Parse CSV --
+  $('btnParseCSV').addEventListener('click', () => {
+    const statusEl = $('csvStatus');
+    const text = csvMode === 'upload' ? uploadedFileText : $('csvTextInput').value;
+    if (!text || !text.trim()) {
+      statusEl.innerHTML = csvMode === 'upload'
+        ? '<span class="text-bad">⚠ Pilih file CSV terlebih dahulu.</span>'
+        : '<span class="text-bad">⚠ Tempel dulu teks CSV-nya.</span>';
+      return;
+    }
+    try {
+      const { headers, rows } = CSVReader.parse(text);
+      state.csvHeaders = headers;
+      state.csvRows = rows;
+      statusEl.innerHTML = `<span class="text-amber">✓ Berhasil membaca ${rows.length} baris data, ${headers.length} kolom header.</span>`;
+      renderCSVPreview();
+      $('rowStart').value = 1;
+      $('rowEnd').value = rows.length;
+      $('totalRowsHint').textContent = rows.length;
+      tryRenderMapping();
+    } catch (err) {
+      statusEl.innerHTML = `<span class="text-bad">⚠ ${err.message}</span>`;
+    }
+  });
+
+  // -- Render table structure info --
+  function renderTableInfo() {
+    $('tableNameBadge').textContent = '· ' + state.tableName;
+    const body = $('tableInfoBody');
+    body.innerHTML = state.columns.map((c) => `
+      <tr class="text-slate-300">
+        <td class="py-2 pr-4 text-white">\`${c.name}\`</td>
+        <td class="py-2 pr-4 text-amber">${c.fullType}</td>
+        <td class="py-2 pr-4">${c.nullable ? '<span class="text-slate-500">YES</span>' : '<span class="text-bad">NOT NULL</span>'}</td>
+        <td class="py-2 pr-4 text-slate-500">${c.default === null ? '—' : c.default}</td>
+        <td class="py-2 pr-4">${c.isPrimary ? '<span class="text-lime">PRIMARY</span>' : ''}</td>
+      </tr>
+    `).join('');
+    $('tableInfoSection').classList.remove('hidden');
+  }
+
+  // -- Render CSV preview --
+  function renderCSVPreview() {
+    $('csvRowCountBadge').textContent = `· ${state.csvRows.length} baris`;
+    $('csvPreviewHead').innerHTML = state.csvHeaders.map((h) => `<th class="py-2 pr-4">${h}</th>`).join('');
+    const previewRows = state.csvRows.slice(0, 5);
+    $('csvPreviewBody').innerHTML = previewRows.map((row) => `
+      <tr class="text-slate-400">
+        ${state.csvHeaders.map((_, i) => `<td class="py-2 pr-4">${row[i] !== undefined && row[i] !== '' ? row[i] : '<span class=\"text-slate-700\">(kosong)</span>'}</td>`).join('')}
+      </tr>
+    `).join('');
+    $('csvPreviewSection').classList.remove('hidden');
+  }
+
+  // -- Step 3: Mapping UI --
+  function tryRenderMapping() {
+    if (state.columns.length === 0 || state.csvHeaders.length === 0) return;
+
+    state.mapping = {};
+    const usedCols = new Set();
+
+    const rowsHtml = state.csvHeaders.map((header, i) => {
+      const guess = HeaderMatcher.bestMatch(header, state.columns.filter((c) => !usedCols.has(c.name)));
+      if (guess) usedCols.add(guess);
+      state.mapping[i] = guess;
+
+      const options = ['<option value="">— Abaikan —</option>']
+        .concat(state.columns.map((c) => `<option value="${c.name}" ${c.name === guess ? 'selected' : ''}>${c.name} (${c.fullType})</option>`))
+        .join('');
+
+      return `
+        <div class="flex items-center gap-3 bg-ink border border-line rounded-md p-3">
+          <div class="flex-1 min-w-0">
+            <span class="text-white text-sm truncate block">${header}</span>
+            <span class="text-slate-600 text-[10px] uppercase tracking-wider">Header CSV</span>
+          </div>
+          <span class="text-slate-600">→</span>
+          <select data-csv-index="${i}" class="mapping-select flex-1 bg-panel2 border border-line focus:border-lime outline-none rounded-md p-2 text-xs text-slate-200">
+            ${options}
+          </select>
+        </div>
+      `;
+    }).join('');
+
+    $('mappingRows').innerHTML = rowsHtml;
+
+    document.querySelectorAll('.mapping-select').forEach((sel) => {
+      sel.addEventListener('change', (e) => {
+        const idx = Number(e.target.dataset.csvIndex);
+        state.mapping[idx] = e.target.value;
+        renderMappingWarnings();
+      });
+    });
+
+    // Detect id column (varchar-like PK, likely named 'id', not mapped from CSV)
+    const idCol = state.columns.find((c) => c.name === 'id' || c.isPrimary);
+    state.idColumn = idCol || null;
+    if (idCol) {
+      $('autoUuidWrap').classList.remove('hidden');
+      $('autoUuidColName').textContent = idCol.name;
+      $('autoUuid').checked = true;
+    } else {
+      $('autoUuidWrap').classList.add('hidden');
+    }
+
+    // Detect created_at / updated_at columns
+    state.timestampColumns = state.columns.filter((c) => /^(created_at|updated_at)$/.test(c.name));
+    if (state.timestampColumns.length) {
+      $('autoTimestampWrap').classList.remove('hidden');
+      $('autoTimestampColName').textContent = state.timestampColumns.map((c) => c.name).join('/');
+      $('autoTimestamp').checked = true;
+    } else {
+      $('autoTimestampWrap').classList.add('hidden');
+    }
+
+    renderOutputColumnSelection();
+    renderDuplicateColumnChecklist();
+    renderMappingWarnings();
+    $('mappingSection').classList.remove('hidden');
+    $('generateSection').classList.remove('hidden');
+    $('rowEnd').value = state.csvRows.length;
+    $('totalRowsHint').textContent = state.csvRows.length;
+  }
+
+  function renderMappingWarnings() {
+    const mappedColNames = new Set(Object.values(state.mapping).filter(Boolean));
+    const autoColNames = new Set();
+    if ($('autoUuid').checked && state.idColumn) autoColNames.add(state.idColumn.name);
+    if ($('autoTimestamp').checked) state.timestampColumns.forEach((c) => autoColNames.add(c.name));
+
+    const warnings = [];
+
+    // Warn: NOT NULL columns with no default, not mapped, not auto-handled
+    state.columns.forEach((c) => {
+      if (!c.nullable && c.default === null && !c.isAutoIncrement && !mappedColNames.has(c.name) && !autoColNames.has(c.name)) {
+        warnings.push(`Kolom <b>\`${c.name}\`</b> bersifat <span class="text-bad">NOT NULL</span> tanpa default dan belum dipetakan — INSERT bisa gagal jika kolom ini tidak diisi.`);
+      }
+    });
+
+    // Warn: duplicate mapping (two headers -> same column)
+    const counts = {};
+    Object.values(state.mapping).forEach((v) => { if (v) counts[v] = (counts[v] || 0) + 1; });
+    Object.entries(counts).forEach(([col, n]) => {
+      if (n > 1) warnings.push(`Kolom <b>\`${col}\`</b> dipetakan oleh lebih dari satu header CSV — data terakhir yang akan dipakai.`);
+    });
+
+    $('mappingWarnings').innerHTML = warnings.length
+      ? warnings.map((w) => `<div class="text-xs text-amber bg-amber/5 border border-amber/30 rounded-md p-2.5">⚠ ${w}</div>`).join('')
+      : '<div class="text-xs text-slate-600">Tidak ada peringatan — mapping siap digunakan.</div>';
+  }
+
+  $('autoUuid').addEventListener('change', renderMappingWarnings);
+  $('autoTimestamp').addEventListener('change', renderMappingWarnings);
+
+  // -- Step 4/5: Generate --
+  $('btnGenerate').addEventListener('click', () => {
+    if (state.columns.length === 0) { alert('Parse struktur tabel terlebih dahulu.'); return; }
+    if (state.csvRows.length === 0) { alert('Baca data CSV terlebih dahulu.'); return; }
+
+    let start = parseInt($('rowStart').value, 10) || 1;
+    let end = parseInt($('rowEnd').value, 10) || state.csvRows.length;
+    let batchSize = parseInt($('batchSize').value, 10) || 100;
+
+    start = Math.max(1, start);
+    end = Math.min(state.csvRows.length, Math.max(start, end));
+    batchSize = Math.max(1, batchSize);
+
+    const included = buildIncludedColumns();
+    const selectedRows = state.csvRows.slice(Math.max(0, start - 1), end);
+    const duplicateIssues = findDuplicateIssues(selectedRows, start);
+
+    if (duplicateIssues.length) {
+      const rowsHtml = duplicateIssues.map((issue) => `
+        <tr class="text-slate-300">
+          <td class="py-2 pr-3 text-white">${issue.column}</td>
+          <td class="py-2 pr-3 text-amber">${issue.value}</td>
+          <td class="py-2 pr-3">${issue.rows.join(', ')}</td>
+        </tr>
+      `).join('');
+
+      renderDuplicateSummary(`
+        <span class="text-bad">Ditemukan duplikasi:</span>
+        <div class="overflow-x-auto mt-2">
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="text-slate-500 border-b border-line text-left uppercase tracking-wider">
+                <th class="py-2 pr-3">Kolom</th>
+                <th class="py-2 pr-3">Nilai</th>
+                <th class="py-2 pr-3">Baris</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-line/60">${rowsHtml}</tbody>
+          </table>
+        </div>
+      `, 'bad');
+      return;
+    }
+
+    if (included.length === 0) {
+      alert('Belum ada kolom yang dipetakan atau diset otomatis. Tidak ada yang bisa digenerate.');
+      return;
+    }
+
+    renderDuplicateSummary(`Tidak ada duplikasi untuk kolom yang dipilih pada rentang ${start}–${end}.`, 'success');
+
+    const generator = new QueryGenerator(state.tableName, included);
+    const result = generator.generate(state.csvRows, start, end, batchSize);
+    state.lastGeneratedBatches = result.batches || [];
+    renderBatchCopyActions();
+
+    const header =
+      `-- Generated by QueryForge\n` +
+      `-- Tabel: ${state.tableName}\n` +
+      `-- Kolom disertakan: ${included.map((c) => c.name).join(', ')}\n` +
+      `-- Rentang baris: ${start} s/d ${end} dari total ${state.csvRows.length} baris CSV\n` +
+      `-- Jumlah query: ${result.batchCount} (maks ${batchSize} baris per query)\n\n`;
+
+    const finalSQL = header + result.sql;
+
+    $('resultOutput').textContent = finalSQL;
+    $('resultSummary').innerHTML = `
+      <div class="bg-ink border border-line rounded-md p-3"><div class="text-slate-600 uppercase text-[10px] tracking-wider mb-1">Baris digenerate</div><div class="text-white text-base">${result.rowCount}</div></div>
+      <div class="bg-ink border border-line rounded-md p-3"><div class="text-slate-600 uppercase text-[10px] tracking-wider mb-1">Jumlah query</div><div class="text-lime text-base">${result.batchCount}</div></div>
+      <div class="bg-ink border border-line rounded-md p-3"><div class="text-slate-600 uppercase text-[10px] tracking-wider mb-1">Kolom disertakan</div><div class="text-amber text-base">${included.length}</div></div>
+      <div class="bg-ink border border-line rounded-md p-3"><div class="text-slate-600 uppercase text-[10px] tracking-wider mb-1">Rentang baris</div><div class="text-white text-base">${start}–${end}</div></div>
+    `;
+    $('resultSection').classList.remove('hidden');
+    $('resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  $('btnCopy').addEventListener('click', () => {
+    const text = $('resultOutput').textContent;
+    copyTextToClipboard(text, $('btnCopy'));
+  });
+
+  $('btnDownload').addEventListener('click', () => {
+    const text = $('resultOutput').textContent;
+    const blob = new Blob([text], { type: 'text/sql' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `insert_${state.tableName || 'query'}.sql`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  // -- Example data loader --
+  $('btnLoadExample').addEventListener('click', () => {
+    $('ddlInput').value = `CREATE TABLE \`users\` (
+  \`id\` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  \`old_id\` int DEFAULT NULL,
+  \`name\` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  \`ota_name\` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  \`email\` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  \`email_verified_at\` timestamp NULL DEFAULT NULL,
+  \`password\` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  \`phone\` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  \`avatar\` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'default.png',
+  \`balance\` double(8,2) NOT NULL DEFAULT '0.00',
+  \`point\` int NOT NULL DEFAULT '0',
+  \`otp\` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  \`is_blocked\` enum('Y','N') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'N',
+  \`type\` enum('member','customer','ota','user') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'customer',
+  \`api_key\` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  \`remember_token\` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  \`province_id\` int DEFAULT NULL,
+  \`regencies_id\` int DEFAULT NULL,
+  \`district_id\` int DEFAULT NULL,
+  \`villages_id\` bigint DEFAULT NULL,
+  \`created_at\` timestamp NULL DEFAULT NULL,
+  \`updated_at\` timestamp NULL DEFAULT NULL,
+  \`deleted_at\` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`;
+
+    $('tabPaste').click();
+    $('csvTextInput').value = `NAMA,NO.TELP,EMAIL
+HANOVERTARIGAN,0801346213273,
+HANIF,080210459485,
+BPKJUMADI,0802352826755,
+SAFIRARAMADHAN,0805349598839,
+CISWANDI,080604480601,`;
+
+    $('btnParseDDL').click();
+    $('btnParseCSV').click();
+  });
+
+  $('btnReset').addEventListener('click', () => {
+    location.reload();
+  });
+
+})();
+</script>
+</body>
+</html>

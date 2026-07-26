@@ -1,0 +1,2801 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ERD Visualizer — Pemeta Skema Database</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Inter', 'ui-sans-serif', 'system-ui'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { background:#0A0E14; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2A3441; border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3A4756; }
+
+  #canvasViewport {
+    background-color: #0A0E14;
+    background-image: radial-gradient(#1C2530 1.4px, transparent 1.4px);
+    background-size: 26px 26px;
+    background-position: 0 0;
+  }
+
+  #worldLayer { transform-origin: 0 0; will-change: transform; }
+
+  .erd-card { transition: box-shadow .15s ease, border-color .15s ease, opacity .15s ease; }
+  .erd-card.is-dragging { transition: none; cursor: grabbing; }
+  .erd-card-header { cursor: grab; }
+  .erd-card-header:active { cursor: grabbing; }
+
+  .erd-path { transition: stroke-width .12s ease, opacity .15s ease; }
+
+  .dim { opacity: 0.16; }
+
+  @keyframes pulseRing {
+    0% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.55); }
+    100% { box-shadow: 0 0 0 14px rgba(45, 212, 191, 0); }
+  }
+  .pulse-focus { animation: pulseRing 0.9s ease-out 2; }
+
+  @keyframes dashFlow { to { stroke-dashoffset: -24; } }
+  .flow-anim { stroke-dasharray: 4 5; animation: dashFlow 0.7s linear infinite; }
+
+  .drawer-enter { transform: translateX(-100%); }
+</style>
+</head>
+<body class="bg-[#0A0E14] text-slate-200 font-sans antialiased h-screen overflow-hidden flex flex-col">
+
+  <!-- ============ TOP TOOLBAR ============ -->
+  <header class="h-14 shrink-0 border-b border-white/10 bg-[#0D1219]/95 backdrop-blur flex items-center gap-2 px-3 md:px-4 z-30 print:hidden">
+    <button id="drawerToggleBtn" class="md:hidden p-2 rounded-lg hover:bg-white/5 text-slate-300" aria-label="Buka daftar tabel">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+
+    <div class="flex items-center gap-2 shrink-0">
+      <div class="w-7 h-7 rounded-md bg-gradient-to-br from-teal-400 to-sky-500 flex items-center justify-center">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0A0E14" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4M6.5 10v4M17.5 10v4M10 17.5h4"/></svg>
+      </div>
+      <span class="font-bold text-[15px] tracking-tight text-white hidden sm:inline">ERD Visualizer</span>
+    </div>
+
+    <div class="h-6 w-px bg-white/10 mx-1 hidden sm:block"></div>
+
+    <div class="flex items-center gap-1.5">
+      <button id="uploadBtn" class="flex items-center gap-1.5 px-2.5 md:px-3 h-9 rounded-lg bg-teal-400 hover:bg-teal-300 text-[#06201C] text-sm font-semibold transition-colors">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        <span class="hidden sm:inline">Import SQL</span>
+      </button>
+      <input id="fileInput" type="file" accept=".sql,.txt" class="hidden">
+      <button id="sampleBtn" class="px-2.5 md:px-3 h-9 rounded-lg border border-white/10 hover:bg-white/5 text-sm text-slate-300 transition-colors hidden sm:inline-flex items-center">Contoh Skema</button>
+    </div>
+
+    <div class="flex-1 min-w-0 flex justify-center px-2">
+      <div class="relative w-full max-w-xs hidden md:block">
+        <svg class="absolute left-2.5 top-2.5 text-slate-500" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="searchInput" type="text" placeholder="Cari tabel..." class="w-full h-9 pl-8 pr-3 rounded-lg bg-white/5 border border-white/10 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-teal-400/60" disabled>
+      </div>
+    </div>
+
+    <div id="statsBar" class="hidden lg:flex items-center gap-2 text-xs text-slate-400 shrink-0">
+      <span id="tableCountBadge" class="px-2 py-1 rounded-md bg-white/5 border border-white/10">0 tabel</span>
+      <span id="relCountBadge" class="px-2 py-1 rounded-md bg-white/5 border border-white/10">0 relasi</span>
+    </div>
+
+    <div class="flex items-center gap-1 shrink-0">
+      <button id="zoomOutBtn" class="w-9 h-9 rounded-lg border border-white/10 hover:bg-white/5 flex items-center justify-center text-slate-300" aria-label="Perkecil">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>
+      </button>
+      <span id="zoomLabel" class="text-xs w-11 text-center text-slate-400 select-none">100%</span>
+      <button id="zoomInBtn" class="w-9 h-9 rounded-lg border border-white/10 hover:bg-white/5 flex items-center justify-center text-slate-300" aria-label="Perbesar">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button id="fitBtn" class="w-9 h-9 rounded-lg border border-white/10 hover:bg-white/5 flex items-center justify-center text-slate-300" aria-label="Sesuaikan layar">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+      </button>
+      <button id="exportBtn" class="hidden md:flex w-9 h-9 rounded-lg border border-white/10 hover:bg-white/5 items-center justify-center text-slate-300" aria-label="Ekspor skema JSON">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 12-4-4m4 4 4-4M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============ BODY: SIDEBAR + CANVAS ============ -->
+  <div class="flex-1 flex min-h-0 relative">
+
+    <!-- Sidebar backdrop (mobile) -->
+    <div id="drawerBackdrop" class="fixed inset-0 bg-black/60 z-20 hidden md:hidden"></div>
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="drawer-enter md:translate-x-0 fixed md:static z-30 md:z-0 top-14 md:top-0 bottom-0 left-0 w-72 shrink-0 bg-[#0D1219] md:bg-[#0B0F16] border-r border-white/10 flex flex-col transition-transform duration-200">
+      <div class="p-3 border-b border-white/10 md:hidden">
+        <div class="relative">
+          <svg class="absolute left-2.5 top-2.5 text-slate-500" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="searchInputMobile" type="text" placeholder="Cari tabel..." class="w-full h-9 pl-8 pr-3 rounded-lg bg-white/5 border border-white/10 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-teal-400/60">
+        </div>
+      </div>
+      <div class="px-3 py-2.5 text-[11px] font-semibold tracking-wide text-slate-500 uppercase">Daftar Tabel</div>
+      <div id="tableList" class="flex-1 overflow-y-auto px-2 pb-3 space-y-1">
+        <div class="px-2 py-6 text-sm text-slate-500 text-center leading-relaxed">Belum ada skema dimuat.<br>Import file .sql untuk mulai.</div>
+      </div>
+      <div class="p-3 border-t border-white/10 text-[11px] text-slate-500 space-y-1.5">
+        <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span> Primary Key</div>
+        <div class="flex items-center gap-1.5"><span class="w-4 h-0.5 rounded-full bg-sky-400 inline-block"></span> Garis relasi skema (FK)</div>
+        <div class="flex items-center gap-1.5"><span class="w-4 h-0.5 rounded-full bg-white inline-block" style="background-image:repeating-linear-gradient(90deg,#fff 0 3px,transparent 3px 6px)"></span> Garis kecocokan data (tanpa FK)</div>
+      </div>
+    </aside>
+
+    <!-- Canvas -->
+    <main class="flex-1 relative overflow-hidden" id="canvasViewport">
+      <div id="worldLayer" class="absolute top-0 left-0">
+        <svg id="edgeLayer" class="absolute top-0 left-0 overflow-visible pointer-events-none"></svg>
+        <div id="cardLayer" class="absolute top-0 left-0"></div>
+      </div>
+
+      <!-- Empty state / dropzone -->
+      <div id="emptyState" class="absolute inset-0 flex items-center justify-center p-6">
+        <div id="dropZone" class="w-full max-w-md rounded-2xl border-2 border-dashed border-white/15 bg-white/[0.02] px-6 py-10 text-center transition-colors">
+          <div class="w-14 h-14 mx-auto rounded-xl bg-teal-400/10 border border-teal-400/20 flex items-center justify-center mb-4">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#5EEAD4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+          </div>
+          <h2 class="text-white font-semibold text-base mb-1.5">Petakan skema database Anda</h2>
+          <p class="text-slate-400 text-sm leading-relaxed mb-5">Seret file <code class="text-teal-300 font-mono text-xs">.sql</code> ke sini, atau pilih file untuk membaca struktur tabel &amp; relasinya secara otomatis.</p>
+          <div class="flex items-center justify-center gap-2">
+            <button id="dropZoneUploadBtn" class="px-4 h-10 rounded-lg bg-teal-400 hover:bg-teal-300 text-[#06201C] text-sm font-semibold transition-colors">Pilih File .sql</button>
+            <button id="dropZoneSampleBtn" class="px-4 h-10 rounded-lg border border-white/15 hover:bg-white/5 text-sm text-slate-300 transition-colors">Coba Contoh</button>
+          </div>
+          <p class="text-[11px] text-slate-600 mt-4">Mendukung dump MySQL (phpMyAdmin/Laravel) &amp; PostgreSQL. Semua diproses lokal di browser Anda.</p>
+        </div>
+      </div>
+
+      <!-- Parse error banner -->
+      <div id="errorBanner" class="hidden absolute top-3 left-1/2 -translate-x-1/2 z-20 max-w-md w-[calc(100%-24px)] bg-rose-500/10 border border-rose-500/30 text-rose-200 text-sm rounded-lg px-4 py-3"></div>
+
+      <!-- filename chip -->
+      <div id="fileChip" class="hidden absolute top-3 left-3 z-10 bg-[#0D1219]/90 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-300 items-center gap-2">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5EEAD4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        <span id="fileChipName" class="font-mono"></span>
+      </div>
+
+      <!-- top-right controls: value-relation toggle + summary button -->
+      <div id="topRightControls" class="hidden absolute top-3 right-3 z-10 items-center gap-2">
+        <label class="flex items-center gap-1.5 bg-[#0D1219]/90 border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 cursor-pointer select-none">
+          <input id="valueRelToggle" type="checkbox" checked class="accent-slate-100 w-3.5 h-3.5">
+          <span class="w-2 h-2 rounded-full bg-white inline-block"></span>
+          Relasi data cocok
+        </label>
+        <button id="summaryBtn" class="flex items-center gap-1.5 bg-teal-400 hover:bg-teal-300 text-[#06201C] rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h1m8 10h1a5 5 0 0 0 0-10h-1M8 12h8"/></svg>
+          Ringkasan Relasi
+        </button>
+      </div>
+
+      <!-- loading overlay -->
+      <div id="loadingOverlay" class="hidden absolute inset-0 z-40 bg-[#0A0E14]/90 backdrop-blur-sm flex items-center justify-center">
+        <div class="text-center">
+          <div class="w-10 h-10 mx-auto mb-4 rounded-full border-2 border-teal-400/25 border-t-teal-400 animate-spin"></div>
+          <p id="loadingLabel" class="text-sm text-slate-300 font-medium">Memproses file...</p>
+          <p id="loadingSubLabel" class="text-xs text-slate-500 mt-1">Mohon tunggu sebentar</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ============ SUMMARY MODAL ============ -->
+  <div id="summaryModalBackdrop" class="hidden fixed inset-0 bg-black/70 z-40 flex items-center justify-center p-2 md:p-4">
+    <div id="summaryModal" class="w-full h-full md:w-[97vw] md:h-[94vh] max-w-none bg-[#0D1219] border border-white/10 rounded-none md:rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      <div class="p-4 border-b border-white/10 flex items-center justify-between shrink-0">
+        <div>
+          <h3 class="text-white font-semibold text-[15px]">Ringkasan Relasi Database</h3>
+          <p id="summaryCounts" class="text-xs text-slate-500 mt-0.5">-</p>
+        </div>
+        <button id="summaryCloseBtn" class="w-8 h-8 rounded-lg hover:bg-white/5 flex items-center justify-center text-slate-400">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-3 border-b border-white/10 shrink-0">
+        <div class="relative">
+          <svg class="absolute left-2.5 top-2.5 text-slate-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="summarySearch" type="text" placeholder="Filter berdasarkan nama tabel atau kolom..." class="w-full h-9 pl-8 pr-3 rounded-lg bg-white/5 border border-white/10 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-teal-400/60">
+        </div>
+      </div>
+      <div id="summaryBody" class="flex-1 overflow-y-auto p-4 space-y-6"></div>
+    </div>
+  </div>
+
+  <script>
+  /* ======================================================================
+     1. SQL SCHEMA PARSER
+  ====================================================================== */
+  class SQLSchemaParser {
+    constructor(sql) { this.raw = sql || ''; }
+
+    parse() {
+      const clean = this.stripComments(this.raw);
+      const tables = this.extractTables(clean);
+      const alterRelations = this.extractAlterForeignKeys(clean);
+
+      const tableMap = {};
+      tables.forEach(t => tableMap[t.name.toLowerCase()] = t);
+
+      const allRelations = [];
+      tables.forEach(t => t.relations.forEach(r => allRelations.push(r)));
+      alterRelations.forEach(r => allRelations.push(r));
+
+      const seen = new Set();
+      const relations = [];
+      allRelations.forEach(r => {
+        if (!tableMap[String(r.fromTable).toLowerCase()] || !tableMap[String(r.toTable).toLowerCase()]) return;
+        const key = (r.fromTable + '|' + r.fromCol + '|' + r.toTable + '|' + r.toCol).toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        relations.push(r);
+      });
+
+      relations.forEach(r => {
+        const t = tableMap[r.fromTable.toLowerCase()];
+        if (t) {
+          const col = t.columns.find(c => c.name.toLowerCase() === r.fromCol.toLowerCase());
+          if (col) col.isFK = true;
+        }
+      });
+
+      return { tables, relations };
+    }
+
+    stripComments(sql) {
+      const n = sql.length;
+      let out = '';
+      let copyStart = 0;
+      let inString = false, stringChar = '';
+      let i = 0;
+      while (i < n) {
+        const ch = sql[i];
+        if (inString) {
+          if (ch === '\\' && stringChar !== '`') { i += 2; continue; }
+          if (ch === stringChar) inString = false;
+          i++;
+          continue;
+        }
+        if (ch === "'" || ch === '"' || ch === '`') { inString = true; stringChar = ch; i++; continue; }
+        if (ch === '/' && sql[i + 1] === '*') {
+          out += sql.slice(copyStart, i) + ' ';
+          const end = sql.indexOf('*/', i + 2);
+          i = (end === -1) ? n : end + 2;
+          copyStart = i;
+          continue;
+        }
+        // MySQL only treats '--' as a comment when followed by whitespace/EOL —
+        // this avoids wrongly stripping content like CSS custom properties
+        // ('--tw-translate-x: 0') that can appear inside quoted string values.
+        if (ch === '-' && sql[i + 1] === '-' && (i + 2 >= n || /\s/.test(sql[i + 2]))) {
+          out += sql.slice(copyStart, i);
+          let j = i;
+          while (j < n && sql[j] !== '\n') j++;
+          i = j;
+          copyStart = i;
+          continue;
+        }
+        if (ch === '#') {
+          out += sql.slice(copyStart, i);
+          let j = i;
+          while (j < n && sql[j] !== '\n') j++;
+          i = j;
+          copyStart = i;
+          continue;
+        }
+        i++;
+      }
+      out += sql.slice(copyStart, n);
+      return out;
+    }
+
+    findMatchingParen(str, openIdx) {
+      let depth = 0;
+      for (let i = openIdx; i < str.length; i++) {
+        const ch = str[i];
+        if (ch === '(') depth++;
+        else if (ch === ')') { depth--; if (depth === 0) return i; }
+      }
+      return -1;
+    }
+
+    splitTopLevel(str) {
+      const parts = [];
+      let depth = 0, current = '', inString = false, stringChar = '';
+      for (let i = 0; i < str.length; i++) {
+        const ch = str[i];
+        if (inString) {
+          current += ch;
+          if (ch === stringChar && str[i - 1] !== '\\') inString = false;
+          continue;
+        }
+        if (ch === "'" || ch === '"') { inString = true; stringChar = ch; current += ch; continue; }
+        if (ch === '(') { depth++; current += ch; continue; }
+        if (ch === ')') { depth--; current += ch; continue; }
+        if (ch === ',' && depth === 0) { parts.push(current.trim()); current = ''; continue; }
+        current += ch;
+      }
+      if (current.trim()) parts.push(current.trim());
+      return parts;
+    }
+
+    cleanIdent(s) {
+      if (!s) return s;
+      return s.replace(/^[`"\[]|[`"\]]$/g, '').trim();
+    }
+
+    extractTables(sql) {
+      const tables = [];
+      const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([`"\[]?[\w.]+[`"\]]?)\s*\(/gi;
+      let match;
+      while ((match = re.exec(sql)) !== null) {
+        const rawName = match[1];
+        const tableName = this.cleanIdent(rawName.split('.').pop());
+        const openParenIdx = match.index + match[0].length - 1;
+        const closeParenIdx = this.findMatchingParen(sql, openParenIdx);
+        if (closeParenIdx === -1) continue;
+        const body = sql.substring(openParenIdx + 1, closeParenIdx);
+        const segments = this.splitTopLevel(body);
+
+        const table = { name: tableName, columns: [], relations: [], primaryKeys: [] };
+
+        segments.forEach(seg => {
+          const s = seg.trim();
+          if (!s) return;
+
+          if (/^CONSTRAINT/i.test(s)) {
+            const fk = this.parseForeignKeyLine(s, tableName);
+            if (fk) { table.relations.push(fk); return; }
+            const pk = this.parsePrimaryKeyLine(s);
+            if (pk) { table.primaryKeys.push(...pk); return; }
+            return;
+          }
+          if (/^PRIMARY\s+KEY/i.test(s)) {
+            const pk = this.parsePrimaryKeyLine(s);
+            if (pk) table.primaryKeys.push(...pk);
+            return;
+          }
+          if (/^FOREIGN\s+KEY/i.test(s)) {
+            const fk = this.parseForeignKeyLine(s, tableName);
+            if (fk) table.relations.push(fk);
+            return;
+          }
+          if (/^(UNIQUE\s+KEY|UNIQUE\s+INDEX|KEY|INDEX|FULLTEXT|SPATIAL)\b/i.test(s)) return;
+          if (/^UNIQUE\s*\(/i.test(s)) return;
+          if (/^CHECK\s*\(/i.test(s)) return;
+
+          const col = this.parseColumnLine(s);
+          if (col) {
+            table.columns.push(col);
+            if (col.isPKInline) table.primaryKeys.push(col.name);
+            if (col.inlineRef) {
+              table.relations.push({
+                fromTable: tableName, fromCol: col.name,
+                toTable: col.inlineRef.table, toCol: col.inlineRef.col, name: null
+              });
+            }
+          }
+        });
+
+        table.primaryKeys = [...new Set(table.primaryKeys.map(c => this.cleanIdent(c)))];
+        table.columns.forEach(c => {
+          if (table.primaryKeys.some(pk => pk.toLowerCase() === c.name.toLowerCase())) c.isPK = true;
+        });
+
+        tables.push(table);
+      }
+      return tables;
+    }
+
+    parsePrimaryKeyLine(s) {
+      const m = s.match(/PRIMARY\s+KEY\s*(?:\w+\s*)?\(([^)]+)\)/i);
+      if (!m) return null;
+      return m[1].split(',').map(c => this.cleanIdent(c.trim()));
+    }
+
+    parseForeignKeyLine(s, tableName) {
+      const m = s.match(/FOREIGN\s+KEY\s*(?:[`"\[]?\w+[`"\]]?\s*)?\(([^)]+)\)\s*REFERENCES\s+([`"\[]?[\w.]+[`"\]]?)\s*\(([^)]+)\)/i);
+      if (!m) return null;
+      const fromCols = m[1].split(',').map(c => this.cleanIdent(c.trim()));
+      const toTable = this.cleanIdent(m[2].split('.').pop());
+      const toCols = m[3].split(',').map(c => this.cleanIdent(c.trim()));
+      const nameMatch = s.match(/CONSTRAINT\s+([`"\[]?[\w]+[`"\]]?)/i);
+      return {
+        fromTable: tableName, fromCol: fromCols[0], fromCols,
+        toTable, toCol: toCols[0], toCols,
+        name: nameMatch ? this.cleanIdent(nameMatch[1]) : null
+      };
+    }
+
+    parseColumnLine(s) {
+      const m = s.match(/^([`"\[]?[\w]+[`"\]]?)\s+([A-Za-z][\w]*)\s*(\([^)]*\))?/);
+      if (!m) return null;
+      const name = this.cleanIdent(m[1]);
+      const reserved = ['PRIMARY', 'FOREIGN', 'CONSTRAINT', 'UNIQUE', 'KEY', 'INDEX', 'CHECK', 'FULLTEXT', 'SPATIAL'];
+      if (reserved.includes(name.toUpperCase())) return null;
+
+      let type = m[2].toUpperCase() + (m[3] || '');
+      const rest = s.substring(m[0].length);
+
+      const col = {
+        name, type: type.trim(),
+        nullable: !/NOT\s+NULL/i.test(rest),
+        isPK: false,
+        isPKInline: /PRIMARY\s+KEY/i.test(rest),
+        isFK: false,
+        autoIncrement: /AUTO_INCREMENT|IDENTITY/i.test(rest) || /SERIAL/i.test(type),
+        default: null,
+        inlineRef: null
+      };
+
+      const defMatch = rest.match(/DEFAULT\s+([^,\s]+(?:\([^)]*\))?)/i);
+      if (defMatch) col.default = defMatch[1];
+
+      const refMatch = rest.match(/REFERENCES\s+([`"\[]?[\w.]+[`"\]]?)\s*\(([^)]+)\)/i);
+      if (refMatch) {
+        col.inlineRef = {
+          table: this.cleanIdent(refMatch[1].split('.').pop()),
+          col: this.cleanIdent(refMatch[2].split(',')[0].trim())
+        };
+      }
+      return col;
+    }
+
+    extractAlterForeignKeys(sql) {
+      const relations = [];
+      const re = /ALTER\s+TABLE\s+(?:ONLY\s+)?([`"\[]?[\w.]+[`"\]]?)\s+ADD\s+(?:CONSTRAINT\s+([`"\[]?[\w]+[`"\]]?)\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+([`"\[]?[\w.]+[`"\]]?)\s*\(([^)]+)\)/gi;
+      let match;
+      while ((match = re.exec(sql)) !== null) {
+        const fromTable = this.cleanIdent(match[1].split('.').pop());
+        const name = match[2] ? this.cleanIdent(match[2]) : null;
+        const fromCols = match[3].split(',').map(c => this.cleanIdent(c.trim()));
+        const toTable = this.cleanIdent(match[4].split('.').pop());
+        const toCols = match[5].split(',').map(c => this.cleanIdent(c.trim()));
+        relations.push({ fromTable, fromCol: fromCols[0], fromCols, toTable, toCol: toCols[0], toCols, name });
+      }
+      return relations;
+    }
+  }
+
+  /* ======================================================================
+     1b. INSERT DATA PARSER — extracts actual row values per table/column
+  ====================================================================== */
+  class InsertDataParser {
+    constructor(sql) { this.raw = sql || ''; }
+
+    parse() {
+      const ROW_CAP = 20000;
+      const clean = this.stripComments(this.raw);
+      const tables = {};
+      const re = /INSERT\s+INTO\s+[`"\[]?(\w+)[`"\]]?\s*\(([^)]+)\)\s*VALUES/gi;
+      let match;
+      while ((match = re.exec(clean)) !== null) {
+        const tableName = match[1];
+        const cols = match[2].split(',').map(c => c.replace(/[`"\[\]\s]/g, ''));
+        const valuesStart = re.lastIndex;
+        const stmtEnd = this.findStatementEnd(clean, valuesStart);
+        const body = clean.substring(valuesStart, stmtEnd);
+        re.lastIndex = stmtEnd;
+
+        if (!tables[tableName]) {
+          tables[tableName] = {
+            columns: cols,
+            colData: cols.map(() => ({ values: new Set(), total: 0 })),
+            rows: [], rowsTruncated: false
+          };
+        }
+        const tEntry = tables[tableName];
+        const tuples = this.splitTopLevel(body);
+        tuples.forEach(tuple => {
+          const t = tuple.trim();
+          if (t[0] !== '(' || t[t.length - 1] !== ')') return;
+          const fields = this.splitTopLevel(t.substring(1, t.length - 1));
+          const rowObj = (tEntry.rows.length < ROW_CAP) ? {} : null;
+          fields.forEach((f, idx) => {
+            if (idx >= tEntry.colData.length) return;
+            const val = this.unquoteValue(f);
+            if (rowObj) rowObj[tEntry.columns[idx]] = val;
+            if (val === null || val === '') return;
+            const cd = tEntry.colData[idx];
+            cd.total++;
+            if (cd.values.size < 20000) cd.values.add(val);
+          });
+          if (rowObj) tEntry.rows.push(rowObj);
+          else tEntry.rowsTruncated = true;
+        });
+      }
+      return tables;
+    }
+
+    stripComments(sql) {
+      const n = sql.length;
+      let out = '';
+      let copyStart = 0;
+      let inString = false, stringChar = '';
+      let i = 0;
+      while (i < n) {
+        const ch = sql[i];
+        if (inString) {
+          if (ch === '\\' && stringChar !== '`') { i += 2; continue; }
+          if (ch === stringChar) inString = false;
+          i++;
+          continue;
+        }
+        if (ch === "'" || ch === '"' || ch === '`') { inString = true; stringChar = ch; i++; continue; }
+        if (ch === '/' && sql[i + 1] === '*') {
+          out += sql.slice(copyStart, i) + ' ';
+          const end = sql.indexOf('*/', i + 2);
+          i = (end === -1) ? n : end + 2;
+          copyStart = i;
+          continue;
+        }
+        if (ch === '-' && sql[i + 1] === '-' && (i + 2 >= n || /\s/.test(sql[i + 2]))) {
+          out += sql.slice(copyStart, i);
+          let j = i;
+          while (j < n && sql[j] !== '\n') j++;
+          i = j;
+          copyStart = i;
+          continue;
+        }
+        if (ch === '#') {
+          out += sql.slice(copyStart, i);
+          let j = i;
+          while (j < n && sql[j] !== '\n') j++;
+          i = j;
+          copyStart = i;
+          continue;
+        }
+        i++;
+      }
+      out += sql.slice(copyStart, n);
+      return out;
+    }
+
+    splitTopLevel(str) {
+      const parts = [];
+      let depth = 0, current = '', inString = false, stringChar = '';
+      for (let i = 0; i < str.length; i++) {
+        const ch = str[i];
+        if (inString) {
+          current += ch;
+          if (ch === '\\') { if (i + 1 < str.length) { current += str[i + 1]; i++; } continue; }
+          if (ch === stringChar) inString = false;
+          continue;
+        }
+        if (ch === "'" || ch === '"') { inString = true; stringChar = ch; current += ch; continue; }
+        if (ch === '(') { depth++; current += ch; continue; }
+        if (ch === ')') { depth--; current += ch; continue; }
+        if (ch === ',' && depth === 0) { parts.push(current.trim()); current = ''; continue; }
+        current += ch;
+      }
+      if (current.trim()) parts.push(current.trim());
+      return parts;
+    }
+
+    findStatementEnd(sql, fromIdx) {
+      let depth = 0, inString = false, stringChar = '';
+      for (let i = fromIdx; i < sql.length; i++) {
+        const ch = sql[i];
+        if (inString) { if (ch === '\\') { i++; continue; } if (ch === stringChar) inString = false; continue; }
+        if (ch === "'" || ch === '"') { inString = true; stringChar = ch; continue; }
+        if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+        else if (ch === ';' && depth === 0) return i;
+      }
+      return sql.length;
+    }
+
+    unquoteValue(raw) {
+      const s = raw.trim();
+      if (/^NULL$/i.test(s)) return null;
+      if (s.length >= 2 && s[0] === "'" && s[s.length - 1] === "'") {
+        let inner = s.substring(1, s.length - 1);
+        inner = inner.replace(/\\(['\\])/g, '$1').replace(/''/g, "'");
+        return inner;
+      }
+      return s;
+    }
+  }
+
+  /* ======================================================================
+     1c. VIEW RESOLVER — SQL dumps often contain VIEWs (v_settlement, etc.)
+     which mysqldump exports as a placeholder CREATE TABLE (structure only)
+     plus a CREATE VIEW ... AS SELECT ... statement — but NEVER any INSERT
+     data, since views don't store rows of their own. Without this step,
+     view columns can never be discovered as matching real table data no
+     matter how obviously related they are (e.g. v_settlement.booking_code
+     is literally transactions.booking_code for paid transactions).
+
+     This resolver parses view definitions and, for the resolvable subset
+     (single base table or a chain of simple equi-joins, with a plain
+     AND-only WHERE filter — no UNION/subquery/derived-table), MATERIALIZES
+     real row data for the view by executing that join+filter against the
+     already-parsed base tables' rows. The result is merged into
+     insertTables under the view's own name, in the exact same shape
+     InsertDataParser produces — so every downstream step (relation
+     matching, clustering, query building, live results) treats a
+     materialized view exactly like any other table, with no special
+     casing needed anywhere else in the app.
+
+     Views that can't be safely resolved (UNION, derived-table subqueries,
+     views built on other views, or with no base data) are left registered
+     but empty, with a human-readable reason attached, so the UI can show
+     *why* a given view has no matches instead of silently doing nothing.
+  ====================================================================== */
+class ViewResolver {
+  constructor(raw, schema, insertTables) {
+    this.raw = raw;
+    this.schema = schema;
+    this.insertTables = insertTables;
+  }
+
+  stripComments(sql) {
+    // reuse same string-aware comment stripper semantics as the other parsers
+    const n = sql.length;
+    let out = '';
+    let copyStart = 0;
+    let inString = false, stringChar = '';
+    let i = 0;
+    while (i < n) {
+      const ch = sql[i];
+      if (inString) {
+        if (ch === '\\' && stringChar !== '`') { i += 2; continue; }
+        if (ch === stringChar) inString = false;
+        i++;
+        continue;
+      }
+      if (ch === "'" || ch === '"' || ch === '`') { inString = true; stringChar = ch; i++; continue; }
+      if (ch === '/' && sql[i + 1] === '*') {
+        out += sql.slice(copyStart, i) + ' ';
+        const end = sql.indexOf('*/', i + 2);
+        i = (end === -1) ? n : end + 2;
+        copyStart = i;
+        continue;
+      }
+      if (ch === '-' && sql[i + 1] === '-' && (i + 2 >= n || /\s/.test(sql[i + 2]))) {
+        out += sql.slice(copyStart, i);
+        let j = i; while (j < n && sql[j] !== '\n') j++;
+        i = j; copyStart = i;
+        continue;
+      }
+      i++;
+    }
+    out += sql.slice(copyStart, n);
+    return out;
+  }
+
+  findStatementEnd(sql, fromIdx) {
+    let depth = 0, inString = false, stringChar = '';
+    for (let i = fromIdx; i < sql.length; i++) {
+      const ch = sql[i];
+      if (inString) { if (ch === '\\') { i++; continue; } if (ch === stringChar) inString = false; continue; }
+      if (ch === "'" || ch === '"') { inString = true; stringChar = ch; continue; }
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      else if (ch === ';' && depth === 0) return i;
+    }
+    return sql.length;
+  }
+
+  extractViewDefs(clean) {
+    const defs = [];
+    const re = /CREATE\s+ALGORITHM=\S+\s+DEFINER=\S+\s+SQL\s+SECURITY\s+\S+\s+VIEW\s+`(\w+)`\s+AS\s+SELECT\s+/gi;
+    let m;
+    while ((m = re.exec(clean)) !== null) {
+      const name = m[1];
+      const bodyStart = re.lastIndex;
+      const end = this.findStatementEnd(clean, bodyStart);
+      defs.push({ name, body: clean.slice(bodyStart, end) });
+      re.lastIndex = end;
+    }
+    return defs;
+  }
+
+  /** Splits a comma-separated list at top level (respecting parens) */
+  splitTopLevelCommas(str) {
+    const parts = [];
+    let depth = 0, cur = '';
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i];
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    if (cur.trim()) parts.push(cur);
+    return parts;
+  }
+
+  /** Parses "SELECT <list> FROM <fromclause> [WHERE ...] [GROUP BY ...] [ORDER BY ...]" body (SELECT already stripped) */
+  parseViewBody(body) {
+    // Find top-level FROM keyword (not inside parens/subquery)
+    const fromIdx = this.findTopLevelKeyword(body, 'FROM');
+    if (fromIdx === -1) return { unresolved: true, reason: 'Tidak ditemukan klausa FROM.' };
+    const selectListRaw = body.slice(0, fromIdx);
+    let rest = body.slice(fromIdx + 4);
+
+    const whereIdx = this.findTopLevelKeyword(rest, 'WHERE');
+    const groupIdx = this.findTopLevelKeyword(rest, 'GROUP BY');
+    const orderIdx = this.findTopLevelKeyword(rest, 'ORDER BY');
+    const cutPoints = [whereIdx, groupIdx, orderIdx].filter(x => x !== -1);
+    const fromEnd = cutPoints.length ? Math.min(...cutPoints) : rest.length;
+    const fromClause = rest.slice(0, fromEnd).trim();
+    const whereClause = whereIdx !== -1
+      ? rest.slice(whereIdx + 5, (groupIdx !== -1 && groupIdx > whereIdx) ? groupIdx : (orderIdx !== -1 && orderIdx > whereIdx ? orderIdx : rest.length)).trim()
+      : null;
+
+    // Detect UNION at top level of select list or from clause -> unresolvable
+    if (/\bUNION\b/i.test(body) && this.findTopLevelKeyword(body, 'UNION') !== -1) {
+      return { unresolved: true, reason: 'Mengandung UNION (gabungan beberapa SELECT).' };
+    }
+
+    // FROM clause must not contain a derived-table subquery: "(select ...)"
+    if (/\(\s*select\b/i.test(fromClause)) {
+      return { unresolved: true, reason: 'FROM menggunakan derived table / subquery.' };
+    }
+
+    const fromChain = this.parseFromChain(fromClause);
+    if (!fromChain) return { unresolved: true, reason: 'Struktur FROM/JOIN tidak dikenali.' };
+
+    const selectList = this.splitTopLevelCommas(selectListRaw).map(s => s.trim()).filter(Boolean);
+    const columns = selectList.map(item => this.parseSelectItem(item, fromChain.aliasToTable));
+
+    const wherePreds = whereClause ? this.parseWhere(whereClause, fromChain.aliasToTable) : { predicates: [], skippedAny: false };
+
+    return { unresolved: false, fromChain, columns, wherePreds };
+  }
+
+  findTopLevelKeyword(str, kw) {
+    const re = new RegExp('\\b' + kw.replace(' ', '\\s+') + '\\b', 'gi');
+    let m;
+    while ((m = re.exec(str)) !== null) {
+      const before = str[m.index - 1];
+      const after = str[m.index + m[0].length];
+      if (before === '`' || after === '`') continue; // matched inside a quoted identifier, e.g. `from` as a column name
+      let depth = 0;
+      for (let i = 0; i < m.index; i++) {
+        if (str[i] === '(') depth++;
+        else if (str[i] === ')') depth--;
+      }
+      if (depth === 0) return m.index;
+    }
+    return -1;
+  }
+
+  /** Parses a left-nested join chain: `t1` `a1` (JOIN `t2` `a2` ON ((a1.x = a2.y)))* possibly wrapped in extra parens */
+  parseFromChain(fromClause) {
+    let s = fromClause.trim();
+    // strip wrapping parens that enclose the whole thing: (((...)))
+    while (s.startsWith('(') && this.isFullyWrapped(s)) s = s.slice(1, -1).trim();
+
+    // find the first table reference, then an optional [AS] alias
+    const baseMatch = s.match(/^\(*\s*`(\w+)`/i);
+    if (!baseMatch) return null;
+    const baseTable = baseMatch[1];
+    let cursor = baseMatch[0].length;
+    while (/\s/.test(s[cursor])) cursor++;
+    const asMatch = s.slice(cursor).match(/^AS\s+/i);
+    if (asMatch) cursor += asMatch[0].length;
+    const KEYWORDS = /^(WHERE|GROUP|ORDER|JOIN|LEFT|RIGHT|INNER|UNION|LIMIT)$/i;
+    const aliasMatch = s.slice(cursor).match(/^`?(\w+)`?/);
+    const baseAlias = (aliasMatch && !KEYWORDS.test(aliasMatch[1])) ? aliasMatch[1] : baseTable;
+    const aliasToTable = { [baseAlias]: baseTable };
+    const tablesUsed = [baseTable];
+
+    const joins = [];
+    const joinRe = /(LEFT\s+JOIN|RIGHT\s+JOIN|INNER\s+JOIN|JOIN)\s+`(\w+)`\s+(?:AS\s+)?`?(\w+)`?\s+ON\s*\(*\s*`?(\w+)`?\.`?(\w+)`?\s*=\s*`?(\w+)`?\.`?(\w+)`?\s*\)*/gi;
+    let jm;
+    let sawUnrecognizedJoin = false;
+    while ((jm = joinRe.exec(s)) !== null) {
+      const [, joinType, table, alias, la, lc, ra, rc] = jm;
+      aliasToTable[alias] = table;
+      tablesUsed.push(table);
+      joins.push({ type: joinType.trim().toUpperCase(), table, alias, leftAlias: la, leftCol: lc, rightAlias: ra, rightCol: rc });
+    }
+
+    // sanity check: every alias referenced by a join's ON condition should already be known (a2 or a previous alias)
+    // if there's leftover "JOIN" text not captured, treat as unresolved by comparing count
+    const joinCount = (s.match(/\bJOIN\b/gi) || []).length;
+    if (joinCount !== joins.length) return null; // some join we couldn't parse (e.g. compound ON condition)
+
+    return { baseTable, baseAlias, aliasToTable, joins, tablesUsed };
+  }
+
+  isFullyWrapped(s) {
+    if (s[0] !== '(' || s[s.length - 1] !== ')') return false;
+    let depth = 0;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '(') depth++;
+      else if (s[i] === ')') { depth--; if (depth === 0 && i !== s.length - 1) return false; }
+    }
+    return true;
+  }
+
+  /** Parses one SELECT-list item; returns {viewCol, sourceAlias, sourceCol} for simple passthrough, else {viewCol, derived:true} */
+  parseSelectItem(item, aliasToTable) {
+    const asMatch = item.match(/^(.*?)\s+AS\s+`?(\w+)`?\s*$/i);
+    let expr, viewCol;
+    if (asMatch) { expr = asMatch[1].trim(); viewCol = asMatch[2]; }
+    else {
+      expr = item.trim();
+      const simple = expr.match(/`?\w+`?\.`?(\w+)`?$/);
+      viewCol = simple ? simple[1] : expr.replace(/[`]/g, '');
+    }
+    const passthrough = expr.match(/^`(\w+)`\.`(\w+)`$/);
+    if (passthrough && aliasToTable[passthrough[1]]) {
+      return { viewCol, sourceAlias: passthrough[1], sourceCol: passthrough[2], derived: false };
+    }
+    return { viewCol, derived: true };
+  }
+
+  /** Best-effort AND-only WHERE parser: col = 'lit' | col <> 'lit' | col IN (...) | col IS [NOT] NULL | numeric comparisons.
+      Unsupported/unknown conditions are simply skipped (not applied), never mis-applied. */
+  parseWhere(whereClause, aliasToTable) {
+    if (this.findTopLevelKeyword(whereClause, 'OR') !== -1) {
+      return { predicates: [], skippedAny: true }; // bail out entirely on OR, too risky to approximate
+    }
+    let s = whereClause.trim();
+    while (s.startsWith('(') && this.isFullyWrapped(s)) s = s.slice(1, -1).trim();
+
+    const parts = this.splitTopLevelAnd(s);
+    const predicates = [];
+    let skippedAny = false;
+    parts.forEach(part => {
+      let p = part.trim();
+      while (p.startsWith('(') && this.isFullyWrapped(p)) p = p.slice(1, -1).trim();
+
+      let m;
+      if ((m = p.match(/^`?(\w+)`?\.`?(\w+)`?\s*=\s*'([^']*)'$/i))) {
+        predicates.push({ alias: m[1], col: m[2], op: '=', val: m[3] });
+      } else if ((m = p.match(/^`?(\w+)`?\.`?(\w+)`?\s*(<>|!=)\s*'([^']*)'$/i))) {
+        predicates.push({ alias: m[1], col: m[2], op: '!=', val: m[3] });
+      } else if ((m = p.match(/^`?(\w+)`?\.`?(\w+)`?\s+IS\s+NOT\s+NULL$/i))) {
+        predicates.push({ alias: m[1], col: m[2], op: 'notnull' });
+      } else if ((m = p.match(/^`?(\w+)`?\.`?(\w+)`?\s+IS\s+NULL$/i))) {
+        predicates.push({ alias: m[1], col: m[2], op: 'null' });
+      } else if ((m = p.match(/^`?(\w+)`?\.`?(\w+)`?\s+(?:NOT\s+)?IN\s*\(([^)]*)\)$/i))) {
+        const negate = /NOT\s+IN/i.test(p);
+        const vals = this.splitTopLevelCommas(m[3]).map(v => v.trim().replace(/^'|'$/g, ''));
+        predicates.push({ alias: m[1], col: m[2], op: negate ? 'notin' : 'in', vals });
+      } else if ((m = p.match(/^`?(\w+)`?\.`?(\w+)`?\s*(>=|<=|>|<)\s*(-?\d+(?:\.\d+)?)$/))) {
+        predicates.push({ alias: m[1], col: m[2], op: m[3], val: parseFloat(m[4]) });
+      } else {
+        skippedAny = true; // e.g. date arithmetic, now(), function calls — not applied, safe default
+      }
+    });
+    return { predicates, skippedAny };
+  }
+
+  splitTopLevelAnd(str) {
+    // split on top-level AND (case-insensitive), respecting parens
+    const parts = [];
+    let depth = 0, cur = '';
+    let i = 0;
+    while (i < str.length) {
+      const ch = str[i];
+      if (ch === '(') { depth++; cur += ch; i++; continue; }
+      if (ch === ')') { depth--; cur += ch; i++; continue; }
+      if (depth === 0 && /and/i.test(str.slice(i, i + 3)) && /^\s/.test(str[i - 1] || ' ') && /\s$/.test(str.slice(i, i + 4)) === false && /\b/.test(str[i+3]||'')) {
+        // crude boundary check
+      }
+      if (depth === 0 && str.slice(i, i + 3).toUpperCase() === 'AND' &&
+          /[\s)]/.test(str[i - 1] || ' ') && /[\s(]/.test(str[i + 3] || ' ')) {
+        parts.push(cur); cur = ''; i += 3; continue;
+      }
+      cur += ch; i++;
+    }
+    if (cur.trim()) parts.push(cur);
+    return parts;
+  }
+
+  resolve() {
+    const clean = this.stripComments(this.raw);
+    const defs = this.extractViewDefs(clean);
+    const results = [];
+
+    defs.forEach(({ name, body }) => {
+      const parsed = this.parseViewBody(body);
+      if (parsed.unresolved) {
+        this.insertTables[name] = { columns: [], colData: [], rows: [], rowsTruncated: false, isView: true, unresolved: true, unresolvedReason: parsed.reason };
+        results.push({ name, resolved: false, reason: parsed.reason });
+        return;
+      }
+      const mappedCols = parsed.columns.filter(c => !c.derived);
+      if (!mappedCols.length) {
+        this.insertTables[name] = { columns: [], colData: [], rows: [], rowsTruncated: false, isView: true, unresolved: true, unresolvedReason: 'Tidak ada kolom pass-through langsung (semua hasil ekspresi/fungsi).' };
+        results.push({ name, resolved: false, reason: 'no passthrough cols' });
+        return;
+      }
+
+      // verify every table referenced actually has parsed row data
+      const missingBase = parsed.fromChain.tablesUsed.filter(t => !this.insertTables[t] || !this.insertTables[t].rows);
+      if (missingBase.length) {
+        this.insertTables[name] = { columns: [], colData: [], rows: [], rowsTruncated: false, isView: true, unresolved: true, unresolvedReason: `Tabel dasar tidak ada datanya: ${missingBase.join(', ')}.` };
+        results.push({ name, resolved: false, reason: 'missing base data: ' + missingBase.join(',') });
+        return;
+      }
+
+      // execute the join chain
+      const baseAlias = parsed.fromChain.baseAlias;
+      let current = this.insertTables[parsed.fromChain.baseTable].rows.map(r => ({ [baseAlias]: r }));
+      parsed.fromChain.joins.forEach(step => {
+        const rightTable = parsed.fromChain.aliasToTable[step.alias];
+        const rightData = this.insertTables[rightTable];
+        if (!rightData || !rightData.rows) { current = []; return; }
+        // build index keyed by whichever side of the ON clause belongs to the new (right) table
+        const rightIsNew = (step.rightAlias === step.alias);
+        const joinKeyColOnRight = rightIsNew ? step.rightCol : step.leftCol;
+        const joinKeyAliasOnLeft = rightIsNew ? step.leftAlias : step.rightAlias;
+        const joinKeyColOnLeft = rightIsNew ? step.leftCol : step.rightCol;
+
+        const rIndex = new Map();
+        rightData.rows.forEach(r => {
+          const v = r[joinKeyColOnRight];
+          if (v === undefined || v === null) return;
+          const k = String(v);
+          let arr = rIndex.get(k); if (!arr) { arr = []; rIndex.set(k, arr); }
+          arr.push(r);
+        });
+
+        const next = [];
+        current.forEach(acc => {
+          const leftRow = acc[joinKeyAliasOnLeft];
+          const key = leftRow ? leftRow[joinKeyColOnLeft] : undefined;
+          const matches = (key !== undefined && key !== null) ? rIndex.get(String(key)) : null;
+          if (matches && matches.length) {
+            matches.forEach(m => next.push(Object.assign({}, acc, { [step.alias]: m })));
+          } else if (step.type.startsWith('LEFT')) {
+            next.push(Object.assign({}, acc, { [step.alias]: null }));
+          }
+          // INNER/JOIN with no match -> row dropped
+        });
+        current = next;
+      });
+
+      // apply WHERE predicates (best-effort)
+      if (parsed.wherePreds.predicates.length) {
+        current = current.filter(acc => parsed.wherePreds.predicates.every(pred => {
+          const row = acc[pred.alias];
+          if (!row) return false;
+          const v = row[pred.col];
+          switch (pred.op) {
+            case '=': return v !== undefined && v !== null && String(v).toLowerCase() === pred.val.toLowerCase();
+            case '!=': return !(v !== undefined && v !== null && String(v).toLowerCase() === pred.val.toLowerCase());
+            case 'notnull': return v !== undefined && v !== null && v !== '';
+            case 'null': return v === undefined || v === null || v === '';
+            case 'in': return v !== undefined && v !== null && pred.vals.some(pv => pv.toLowerCase() === String(v).toLowerCase());
+            case 'notin': return !(v !== undefined && v !== null && pred.vals.some(pv => pv.toLowerCase() === String(v).toLowerCase()));
+            case '>': return parseFloat(v) > pred.val;
+            case '>=': return parseFloat(v) >= pred.val;
+            case '<': return parseFloat(v) < pred.val;
+            case '<=': return parseFloat(v) <= pred.val;
+            default: return true;
+          }
+        }));
+      }
+
+      // project mapped columns into synthetic view rows + build colData
+      const columns = mappedCols.map(c => c.viewCol);
+      const colData = columns.map(() => ({ values: new Set(), total: 0 }));
+      const rows = current.map(acc => {
+        const rowObj = {};
+        mappedCols.forEach((c, idx) => {
+          const srcRow = acc[c.sourceAlias];
+          const val = srcRow ? srcRow[c.sourceCol] : null;
+          rowObj[c.viewCol] = (val === undefined) ? null : val;
+          if (val !== undefined && val !== null && val !== '') {
+            colData[idx].total++;
+            if (colData[idx].values.size < 20000) colData[idx].values.add(val);
+          }
+        });
+        return rowObj;
+      });
+
+      this.insertTables[name] = {
+        columns, colData, rows, rowsTruncated: false,
+        isView: true, unresolved: false,
+        viewMeta: { baseTable: parsed.fromChain.baseTable, joins: parsed.fromChain.joins.length, whereApplied: parsed.wherePreds.predicates.length, whereSkipped: parsed.wherePreds.skippedAny }
+      };
+      results.push({ name, resolved: true, rowCount: rows.length, cols: columns, joins: parsed.fromChain.joins.length, whereApplied: parsed.wherePreds.predicates.length });
+    });
+
+    return results;
+  }
+}
+
+
+  /* ======================================================================
+     1c. VALUE-RELATION ENGINE — finds columns across tables whose actual
+     data values overlap (exact, case-sensitive match), even when there is
+     no declared PK/FK/unique index tying them together.
+  ====================================================================== */
+  class ValueRelationEngine {
+    constructor(schema, insertTables, opts) {
+      this.schema = schema;
+      this.insertTables = insertTables;
+      this.opts = Object.assign({
+        minMatched: 2, minOverlap: 0.55, minDistinct: 3, maxBucket: 40, maxAvgLen: 60
+      }, opts || {});
+    }
+
+    singularize(word) {
+      const w = word.toLowerCase();
+      if (w.endsWith('ies')) return w.slice(0, -3) + 'y';
+      if (w.endsWith('ses') || w.endsWith('xes') || w.endsWith('ches') || w.endsWith('shes')) return w.slice(0, -2);
+      if (w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
+      return w;
+    }
+
+    nameAffinity(fromCol, toTable, toCol) {
+      const base = fromCol.toLowerCase().replace(/(_id|id)$/, '').replace(/_$/, '');
+      const tableSing = this.singularize(toTable).replace(/_/g, '');
+      const baseNoUnderscore = base.replace(/_/g, '');
+      if (!base) return false;
+      if (baseNoUnderscore === tableSing) return true;
+      if (tableSing.includes(baseNoUnderscore) || baseNoUnderscore.includes(tableSing)) return true;
+      if (fromCol.toLowerCase() === toCol.toLowerCase() && fromCol.toLowerCase() !== 'id') return true;
+      return false;
+    }
+
+    isPureShortNumeric(v) {
+      if (!/^-?\d+(\.\d+)?$/.test(v)) return false;
+      return v.replace(/[^0-9]/g, '').length < 5;
+    }
+
+    compute() {
+      const { minMatched, minOverlap, minDistinct, maxBucket, maxAvgLen } = this.opts;
+      const typeMap = {};
+      this.schema.tables.forEach(t => t.columns.forEach(c => typeMap[t.name + '.' + c.name] = c.type));
+
+      const eligibleCols = [];
+      Object.entries(this.insertTables).forEach(([tableName, data]) => {
+        data.columns.forEach((colName, idx) => {
+          const type = (typeMap[tableName + '.' + colName] || '').toUpperCase();
+          if (/TEXT|BLOB|JSON|DATE|TIME|YEAR/.test(type)) return;
+          const cd = data.colData[idx];
+          if (cd.total < 2 || cd.values.size < 3) return;
+          let sampleLen = 0, sampleN = 0;
+          for (const v of cd.values) { sampleLen += v.length; sampleN++; if (sampleN >= 50) break; }
+          if ((sampleN ? sampleLen / sampleN : 0) > maxAvgLen) return;
+          eligibleCols.push({ table: tableName, col: colName, idx });
+        });
+      });
+
+      const index = new Map();
+      eligibleCols.forEach(ec => {
+        this.insertTables[ec.table].colData[ec.idx].values.forEach(v => {
+          if (!v || v.length > maxAvgLen) return;
+          let bucket = index.get(v);
+          if (!bucket) { bucket = []; index.set(v, bucket); }
+          bucket.push(ec);
+        });
+      });
+
+      const pairMatches = new Map();
+      index.forEach((bucket, value) => {
+        if (bucket.length < 2 || bucket.length > maxBucket) return;
+        for (let i = 0; i < bucket.length; i++) {
+          for (let j = i + 1; j < bucket.length; j++) {
+            const a = bucket[i], b = bucket[j];
+            if (a.table === b.table) continue;
+            let first, second;
+            if (a.table < b.table) { first = a; second = b; } else { first = b; second = a; }
+            const key = first.table + '|' + first.col + '|' + second.table + '|' + second.col;
+            let pm = pairMatches.get(key);
+            if (!pm) { pm = { a: first, b: second, matched: new Set() }; pairMatches.set(key, pm); }
+            pm.matched.add(value);
+          }
+        }
+      });
+
+      const schemaRelKeys = new Set();
+      this.schema.relations.forEach(r => {
+        schemaRelKeys.add((r.fromTable + '|' + r.fromCol + '|' + r.toTable + '|' + r.toCol).toLowerCase());
+        schemaRelKeys.add((r.toTable + '|' + r.toCol + '|' + r.fromTable + '|' + r.fromCol).toLowerCase());
+      });
+
+      const relations = [];
+      pairMatches.forEach(pm => {
+        const distinctA = this.insertTables[pm.a.table].colData[pm.a.idx].values.size;
+        const distinctB = this.insertTables[pm.b.table].colData[pm.b.idx].values.size;
+        const matchedCount = pm.matched.size;
+        const overlapRatio = matchedCount / Math.min(distinctA, distinctB);
+        if (!(matchedCount >= minMatched && overlapRatio >= minOverlap && distinctA >= minDistinct && distinctB >= minDistinct)) return;
+
+        const samplesArr = [...pm.matched];
+        if (samplesArr.every(v => this.isPureShortNumeric(v))) {
+          const aff = this.nameAffinity(pm.a.col, pm.b.table, pm.b.col) || this.nameAffinity(pm.b.col, pm.a.table, pm.a.col);
+          if (!aff) return;
+        }
+
+        const dupKey = (pm.a.table + '|' + pm.a.col + '|' + pm.b.table + '|' + pm.b.col).toLowerCase();
+        const isAlsoFK = schemaRelKeys.has(dupKey);
+
+        relations.push({
+          fromTable: pm.a.table, fromCol: pm.a.col, toTable: pm.b.table, toCol: pm.b.col,
+          matchedCount, overlapRatio, distinctA, distinctB, isAlsoFK,
+          samples: samplesArr.slice(0, 15), sampleTotal: samplesArr.length
+        });
+      });
+
+      relations.sort((x, y) => y.overlapRatio - x.overlapRatio || y.matchedCount - x.matchedCount);
+      return relations;
+    }
+  }
+
+  /* ======================================================================
+     2. FORCE-DIRECTED LAYOUT ENGINE
+  ====================================================================== */
+  class ERDLayoutEngine {
+    constructor(tables, relations) {
+      this.tables = tables;
+      this.relations = relations;
+      this.rowHeight = 28;
+      this.headerHeight = 40;
+      this.cardWidth = 236;
+    }
+
+    estimateSize(table) {
+      const height = this.headerHeight + Math.max(table.columns.length, 1) * this.rowHeight + 10;
+      return { width: this.cardWidth, height };
+    }
+
+    compute() {
+      const n = this.tables.length;
+      const nodes = this.tables.map((t, i) => {
+        const size = this.estimateSize(t);
+        const angle = (i / Math.max(n, 1)) * Math.PI * 2;
+        const radius = 260 + n * 7;
+        return {
+          table: t,
+          x: Math.cos(angle) * radius + (Math.random() - 0.5) * 60,
+          y: Math.sin(angle) * radius + (Math.random() - 0.5) * 60,
+          vx: 0, vy: 0,
+          w: size.width, h: size.height
+        };
+      });
+
+      const nodeMap = {};
+      nodes.forEach(nd => nodeMap[nd.table.name.toLowerCase()] = nd);
+
+      const edges = this.relations
+        .map(r => ({ a: nodeMap[r.fromTable.toLowerCase()], b: nodeMap[r.toTable.toLowerCase()] }))
+        .filter(e => e.a && e.b && e.a !== e.b);
+
+      const iterations = Math.min(420, Math.max(160, n * 7));
+      const k = 250;
+      let temperature = 55;
+
+      for (let iter = 0; iter < iterations; iter++) {
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const n1 = nodes[i], n2 = nodes[j];
+            const dx = n1.x - n2.x, dy = n1.y - n2.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+            const force = (k * k) / dist * 0.022;
+            const fx = (dx / dist) * force, fy = (dy / dist) * force;
+            n1.vx += fx; n1.vy += fy;
+            n2.vx -= fx; n2.vy -= fy;
+          }
+        }
+        edges.forEach(e => {
+          const dx = e.a.x - e.b.x, dy = e.a.y - e.b.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+          const force = (dist * dist) / k * 0.0022;
+          const fx = (dx / dist) * force, fy = (dy / dist) * force;
+          e.a.vx -= fx; e.a.vy -= fy;
+          e.b.vx += fx; e.b.vy += fy;
+        });
+        nodes.forEach(nd => {
+          const disp = Math.sqrt(nd.vx * nd.vx + nd.vy * nd.vy) || 0.01;
+          const capped = Math.min(disp, temperature);
+          nd.x += (nd.vx / disp) * capped;
+          nd.y += (nd.vy / disp) * capped;
+          nd.vx *= 0.82; nd.vy *= 0.82;
+        });
+        temperature *= 0.982;
+      }
+
+      const pad = 90;
+      const minX = Math.min(...nodes.map(nd => nd.x - nd.w / 2));
+      const minY = Math.min(...nodes.map(nd => nd.y - nd.h / 2));
+      nodes.forEach(nd => {
+        nd.x = nd.x - minX + pad;
+        nd.y = nd.y - minY + pad;
+      });
+
+      return nodes;
+    }
+  }
+
+  /* ======================================================================
+     3. MAIN APPLICATION CONTROLLER
+  ====================================================================== */
+  const PALETTE = ['#2DD4BF', '#38BDF8', '#A78BFA', '#FBBF24', '#FB7185', '#A3E635', '#FB923C', '#E879F9', '#60A5FA', '#34D399'];
+
+  const SAMPLE_SQL = `
+CREATE TABLE \`users\` (
+  \`id\` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`name\` varchar(255) NOT NULL,
+  \`email\` varchar(255) NOT NULL,
+  \`created_at\` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (\`id\`),
+  UNIQUE KEY \`users_email_unique\` (\`email\`)
+) ENGINE=InnoDB;
+
+CREATE TABLE \`categories\` (
+  \`id\` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`name\` varchar(120) NOT NULL,
+  \`parent_id\` bigint(20) UNSIGNED DEFAULT NULL,
+  PRIMARY KEY (\`id\`),
+  CONSTRAINT \`categories_parent_id_foreign\` FOREIGN KEY (\`parent_id\`) REFERENCES \`categories\` (\`id\`)
+) ENGINE=InnoDB;
+
+CREATE TABLE \`products\` (
+  \`id\` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`category_id\` bigint(20) UNSIGNED NOT NULL,
+  \`name\` varchar(255) NOT NULL,
+  \`sku\` varchar(64) NOT NULL,
+  \`price\` decimal(10,2) NOT NULL DEFAULT 0.00,
+  \`stock\` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (\`id\`),
+  CONSTRAINT \`products_category_id_foreign\` FOREIGN KEY (\`category_id\`) REFERENCES \`categories\` (\`id\`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE \`addresses\` (
+  \`id\` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`user_id\` bigint(20) UNSIGNED NOT NULL,
+  \`label\` varchar(80) NOT NULL,
+  \`city\` varchar(120) NOT NULL,
+  PRIMARY KEY (\`id\`),
+  CONSTRAINT \`addresses_user_id_foreign\` FOREIGN KEY (\`user_id\`) REFERENCES \`users\` (\`id\`)
+) ENGINE=InnoDB;
+
+CREATE TABLE \`orders\` (
+  \`id\` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`user_id\` bigint(20) UNSIGNED NOT NULL,
+  \`address_id\` bigint(20) UNSIGNED NOT NULL,
+  \`status\` varchar(50) NOT NULL DEFAULT 'pending',
+  \`total\` decimal(12,2) NOT NULL DEFAULT 0.00,
+  \`created_at\` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (\`id\`),
+  CONSTRAINT \`orders_user_id_foreign\` FOREIGN KEY (\`user_id\`) REFERENCES \`users\` (\`id\`),
+  CONSTRAINT \`orders_address_id_foreign\` FOREIGN KEY (\`address_id\`) REFERENCES \`addresses\` (\`id\`)
+) ENGINE=InnoDB;
+
+CREATE TABLE \`order_items\` (
+  \`id\` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`order_id\` bigint(20) UNSIGNED NOT NULL,
+  \`product_id\` bigint(20) UNSIGNED NOT NULL,
+  \`qty\` int(11) NOT NULL DEFAULT 1,
+  \`price\` decimal(10,2) NOT NULL,
+  PRIMARY KEY (\`id\`),
+  CONSTRAINT \`order_items_order_id_foreign\` FOREIGN KEY (\`order_id\`) REFERENCES \`orders\` (\`id\`) ON DELETE CASCADE,
+  CONSTRAINT \`order_items_product_id_foreign\` FOREIGN KEY (\`product_id\`) REFERENCES \`products\` (\`id\`)
+) ENGINE=InnoDB;
+
+CREATE TABLE \`reviews\` (
+  \`id\` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  \`product_id\` bigint(20) UNSIGNED NOT NULL,
+  \`user_id\` bigint(20) UNSIGNED NOT NULL,
+  \`rating\` tinyint(1) NOT NULL,
+  \`comment\` text,
+  PRIMARY KEY (\`id\`),
+  CONSTRAINT \`reviews_product_id_foreign\` FOREIGN KEY (\`product_id\`) REFERENCES \`products\` (\`id\`),
+  CONSTRAINT \`reviews_user_id_foreign\` FOREIGN KEY (\`user_id\`) REFERENCES \`users\` (\`id\`)
+) ENGINE=InnoDB;
+`;
+
+  class ERDApp {
+    constructor() {
+      this.schema = null;
+      this.nodes = [];
+      this.nodeMap = {};
+      this.zoom = 1;
+      this.panX = 60;
+      this.panY = 40;
+      this.dragging = null;
+      this.panning = false;
+      this.lastMouse = { x: 0, y: 0 };
+      this.rowHeight = 28;
+      this.headerHeight = 40;
+
+      this.$ = {
+        viewport: document.getElementById('canvasViewport'),
+        world: document.getElementById('worldLayer'),
+        svg: document.getElementById('edgeLayer'),
+        cardLayer: document.getElementById('cardLayer'),
+        emptyState: document.getElementById('emptyState'),
+        dropZone: document.getElementById('dropZone'),
+        errorBanner: document.getElementById('errorBanner'),
+        fileChip: document.getElementById('fileChip'),
+        fileChipName: document.getElementById('fileChipName'),
+        tableList: document.getElementById('tableList'),
+        tableCountBadge: document.getElementById('tableCountBadge'),
+        relCountBadge: document.getElementById('relCountBadge'),
+        zoomLabel: document.getElementById('zoomLabel'),
+        searchInput: document.getElementById('searchInput'),
+        searchInputMobile: document.getElementById('searchInputMobile'),
+        fileInput: document.getElementById('fileInput'),
+        sidebar: document.getElementById('sidebar'),
+        drawerBackdrop: document.getElementById('drawerBackdrop'),
+        topRightControls: document.getElementById('topRightControls'),
+        valueRelToggle: document.getElementById('valueRelToggle'),
+        summaryBtn: document.getElementById('summaryBtn'),
+        loadingOverlay: document.getElementById('loadingOverlay'),
+        loadingLabel: document.getElementById('loadingLabel'),
+        loadingSubLabel: document.getElementById('loadingSubLabel'),
+        summaryModalBackdrop: document.getElementById('summaryModalBackdrop'),
+        summaryCloseBtn: document.getElementById('summaryCloseBtn'),
+        summaryCounts: document.getElementById('summaryCounts'),
+        summarySearch: document.getElementById('summarySearch'),
+        summaryBody: document.getElementById('summaryBody'),
+      };
+
+      this.valueRelations = [];
+      this.valueClusters = [];
+      this.valueRelVisible = true;
+      this.hoverFitTimer = null;
+      this._rowIndexCache = {};
+      this._anchorDebounce = null;
+
+      this.bindGlobalUI();
+      this.bindCanvasInteractions();
+      this.bindSummaryModal();
+    }
+
+    colorForTable(name) {
+      let hash = 0;
+      for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+      return PALETTE[hash % PALETTE.length];
+    }
+
+    /* ---------------- UI bindings ---------------- */
+    bindGlobalUI() {
+      const openFileDialog = () => this.$.fileInput.click();
+      document.getElementById('uploadBtn').addEventListener('click', openFileDialog);
+      document.getElementById('dropZoneUploadBtn').addEventListener('click', openFileDialog);
+      document.getElementById('sampleBtn').addEventListener('click', () => this.loadSQL(SAMPLE_SQL, 'contoh-skema.sql'));
+      document.getElementById('dropZoneSampleBtn').addEventListener('click', () => this.loadSQL(SAMPLE_SQL, 'contoh-skema.sql'));
+
+      this.$.fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => this.loadSQL(ev.target.result, file.name);
+        reader.onerror = () => this.showError('Gagal membaca file. Coba lagi.');
+        reader.readAsText(file);
+      });
+
+      ['dragover', 'dragenter'].forEach(evt => {
+        this.$.dropZone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          this.$.dropZone.classList.add('border-teal-400/60', 'bg-teal-400/[0.04]');
+        });
+      });
+      ['dragleave', 'drop'].forEach(evt => {
+        this.$.dropZone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          this.$.dropZone.classList.remove('border-teal-400/60', 'bg-teal-400/[0.04]');
+        });
+      });
+      this.$.dropZone.addEventListener('drop', (e) => {
+        const file = e.dataTransfer.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => this.loadSQL(ev.target.result, file.name);
+        reader.readAsText(file);
+      });
+
+      document.getElementById('zoomInBtn').addEventListener('click', () => this.setZoom(this.zoom * 1.2));
+      document.getElementById('zoomOutBtn').addEventListener('click', () => this.setZoom(this.zoom / 1.2));
+      document.getElementById('fitBtn').addEventListener('click', () => this.fitToScreen());
+      document.getElementById('exportBtn').addEventListener('click', () => this.exportJSON());
+
+      const search = (val) => this.filterTables(val);
+      this.$.searchInput.addEventListener('input', (e) => search(e.target.value));
+      this.$.searchInputMobile.addEventListener('input', (e) => { search(e.target.value); this.$.searchInput.value = e.target.value; });
+
+      document.getElementById('drawerToggleBtn').addEventListener('click', () => this.toggleDrawer(true));
+      this.$.drawerBackdrop.addEventListener('click', () => this.toggleDrawer(false));
+
+      this.$.valueRelToggle.addEventListener('change', (e) => {
+        this.valueRelVisible = e.target.checked;
+        if (this.schema) this.redrawAllEdges();
+      });
+    }
+
+    toggleDrawer(open) {
+      if (open) {
+        this.$.sidebar.classList.remove('drawer-enter');
+        this.$.drawerBackdrop.classList.remove('hidden');
+      } else {
+        this.$.sidebar.classList.add('drawer-enter');
+        this.$.drawerBackdrop.classList.add('hidden');
+      }
+    }
+
+    bindCanvasInteractions() {
+      const vp = this.$.viewport;
+
+      vp.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.erd-card')) return;
+        this.panning = true;
+        this.lastMouse = { x: e.clientX, y: e.clientY };
+        vp.style.cursor = 'grabbing';
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (this.panning) {
+          const dx = e.clientX - this.lastMouse.x;
+          const dy = e.clientY - this.lastMouse.y;
+          this.lastMouse = { x: e.clientX, y: e.clientY };
+          this.panX += dx;
+          this.panY += dy;
+          this.applyTransform();
+        } else if (this.dragging) {
+          const dx = (e.clientX - this.dragging.startMouseX) / this.zoom;
+          const dy = (e.clientY - this.dragging.startMouseY) / this.zoom;
+          const node = this.dragging.node;
+          node.x = this.dragging.startX + dx;
+          node.y = this.dragging.startY + dy;
+          node.el.style.left = node.x + 'px';
+          node.el.style.top = node.y + 'px';
+          this.redrawEdgesFor(node.table.name);
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        this.panning = false;
+        vp.style.cursor = '';
+        if (this.dragging) {
+          this.dragging.node.el.classList.remove('is-dragging');
+          this.dragging = null;
+        }
+      });
+
+      vp.addEventListener('wheel', (e) => {
+        if (!this.schema) return;
+        e.preventDefault();
+        const rect = vp.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const worldX = (mouseX - this.panX) / this.zoom;
+        const worldY = (mouseY - this.panY) / this.zoom;
+        const factor = e.deltaY > 0 ? 0.9 : 1.1;
+        const newZoom = Math.min(2.5, Math.max(0.15, this.zoom * factor));
+        this.panX = mouseX - worldX * newZoom;
+        this.panY = mouseY - worldY * newZoom;
+        this.zoom = newZoom;
+        this.applyTransform();
+      }, { passive: false });
+
+      // touch pan (single finger)
+      let touchStart = null;
+      vp.addEventListener('touchstart', (e) => {
+        if (e.target.closest('.erd-card') || e.touches.length !== 1) return;
+        touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }, { passive: true });
+      vp.addEventListener('touchmove', (e) => {
+        if (!touchStart || e.touches.length !== 1) return;
+        const dx = e.touches[0].clientX - touchStart.x;
+        const dy = e.touches[0].clientY - touchStart.y;
+        touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        this.panX += dx; this.panY += dy;
+        this.applyTransform();
+      }, { passive: true });
+      vp.addEventListener('touchend', () => { touchStart = null; });
+    }
+
+    applyTransform() {
+      this.$.world.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+      this.$.zoomLabel.textContent = Math.round(this.zoom * 100) + '%';
+    }
+
+    setZoom(z) {
+      const vp = this.$.viewport.getBoundingClientRect();
+      const centerX = vp.width / 2, centerY = vp.height / 2;
+      const worldX = (centerX - this.panX) / this.zoom;
+      const worldY = (centerY - this.panY) / this.zoom;
+      this.zoom = Math.min(2.5, Math.max(0.15, z));
+      this.panX = centerX - worldX * this.zoom;
+      this.panY = centerY - worldY * this.zoom;
+      this.applyTransform();
+    }
+
+    /* ---------------- Loading & parsing (staged, non-blocking) ---------------- */
+    loadSQL(text, filename) {
+      this.$.errorBanner.classList.add('hidden');
+      this.showLoading('Membaca skema tabel...', 'Menganalisis pernyataan CREATE TABLE');
+
+      const nextTick = (fn) => setTimeout(fn, 20);
+
+      nextTick(() => {
+        let schema;
+        try {
+          schema = new SQLSchemaParser(text).parse();
+        } catch (err) {
+          this.hideLoading();
+          this.showError('Terjadi kesalahan saat parsing file SQL: ' + err.message);
+          return;
+        }
+        if (!schema.tables.length) {
+          this.hideLoading();
+          this.showError('Tidak ditemukan pernyataan CREATE TABLE yang valid pada file ini.');
+          return;
+        }
+        this.schema = schema;
+
+        this.showLoading('Membaca isi data (INSERT)...', 'Mengekstrak nilai kolom dari setiap tabel');
+        nextTick(() => {
+          let insertTables = {};
+          try {
+            insertTables = new InsertDataParser(text).parse();
+          } catch (err) { /* non-fatal: proceed without value-relations */ }
+          this.insertTables = insertTables;
+          this._rowIndexCache = {};
+
+          this.showLoading('Menyusun data dari VIEW SQL...', 'Menjalankan ulang JOIN/WHERE dari definisi VIEW yang bisa dipahami');
+          nextTick(() => {
+            this.viewResolutions = [];
+            try {
+              this.viewResolutions = new ViewResolver(text, this.schema, insertTables).resolve();
+            } catch (err) { /* non-fatal: views simply won't have row data to match against */ }
+
+            this.showLoading('Mencocokkan nilai data antar kolom...', 'Mencari relasi tersembunyi (tanpa FK)');
+            nextTick(() => {
+              try {
+                this.valueRelations = new ValueRelationEngine(this.schema, insertTables).compute();
+                this.buildValueClusters();
+              } catch (err) {
+                this.valueRelations = [];
+                this.valueClusters = [];
+              }
+
+              this.showLoading('Menyusun tata letak diagram...', 'Hampir selesai');
+              nextTick(() => {
+                this.$.fileChipName.textContent = filename;
+                this.$.fileChip.classList.remove('hidden');
+                this.$.fileChip.classList.add('flex');
+                this.$.emptyState.classList.add('hidden');
+                this.$.searchInput.disabled = false;
+                this.$.topRightControls.classList.remove('hidden');
+                this.$.topRightControls.classList.add('flex');
+                this.renderSchema();
+                this.hideLoading();
+              });
+            });
+          });
+        });
+      });
+    }
+
+    showLoading(label, sub) {
+      this.$.loadingLabel.textContent = label;
+      this.$.loadingSubLabel.textContent = sub || '';
+      this.$.loadingOverlay.classList.remove('hidden');
+      this.$.loadingOverlay.classList.add('flex');
+    }
+    hideLoading() {
+      this.$.loadingOverlay.classList.add('hidden');
+      this.$.loadingOverlay.classList.remove('flex');
+    }
+
+    showError(msg) {
+      this.$.errorBanner.textContent = msg;
+      this.$.errorBanner.classList.remove('hidden');
+    }
+
+    /* ---------------- Rendering ---------------- */
+    renderSchema() {
+      const layout = new ERDLayoutEngine(this.schema.tables, this.schema.relations);
+      this.nodes = layout.compute();
+      this.nodeMap = {};
+      this.nodes.forEach(n => this.nodeMap[n.table.name.toLowerCase()] = n);
+
+      this.$.cardLayer.innerHTML = '';
+      this.$.svg.innerHTML = '<defs></defs>';
+
+      this.nodes.forEach(node => this.renderCard(node));
+      this.redrawAllEdges();
+      this.renderSidebarList();
+      this.updateStats();
+
+      requestAnimationFrame(() => this.fitToScreen());
+    }
+
+    keyIcon(color) {
+      return `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m10.5 12.5 8-8M16 5l3 3M13 8l2 2"/></svg>`;
+    }
+    linkIcon(color) {
+      return `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 1 1 0 10h-2M8 12h8"/></svg>`;
+    }
+
+    renderCard(node) {
+      const t = node.table;
+      const color = this.colorForTable(t.name);
+      const card = document.createElement('div');
+      card.className = 'erd-card absolute rounded-xl bg-[#111826] border border-white/10 shadow-lg shadow-black/30 select-none';
+      card.style.left = node.x + 'px';
+      card.style.top = node.y + 'px';
+      card.style.width = node.w + 'px';
+      card.dataset.table = t.name;
+      node.el = card;
+
+      const header = document.createElement('div');
+      header.className = 'erd-card-header h-10 rounded-t-xl flex items-center justify-between px-3 border-b border-white/10';
+      header.style.background = `linear-gradient(180deg, ${color}26, transparent)`;
+      header.innerHTML = `
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span class="w-2 h-2 rounded-full shrink-0" style="background:${color}"></span>
+          <span class="font-mono text-[13px] font-semibold text-white truncate">${this.escape(t.name)}</span>
+        </div>
+        <span class="text-[10px] text-slate-500 font-mono shrink-0">${t.columns.length}</span>
+      `;
+      header.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        this.dragging = {
+          node, startMouseX: e.clientX, startMouseY: e.clientY,
+          startX: node.x, startY: node.y
+        };
+        card.classList.add('is-dragging');
+        card.style.zIndex = 50;
+      });
+      card.appendChild(header);
+
+      const body = document.createElement('div');
+      body.className = 'py-0.5';
+      t.columns.forEach(col => {
+        const row = document.createElement('div');
+        row.className = 'h-7 flex items-center gap-1.5 px-3 text-[12px] hover:bg-white/[0.03]';
+        let icon = '<span class="w-3 h-3 shrink-0"></span>';
+        if (col.isPK) icon = `<span class="w-3 h-3 shrink-0 inline-flex">${this.keyIcon('#FBBF24')}</span>`;
+        else if (col.isFK) icon = `<span class="w-3 h-3 shrink-0 inline-flex">${this.linkIcon(color)}</span>`;
+        row.innerHTML = `
+          ${icon}
+          <span class="font-mono truncate ${col.isPK ? 'text-amber-300 font-semibold' : 'text-slate-200'}">${this.escape(col.name)}</span>
+          <span class="font-mono text-slate-500 text-[10.5px] ml-auto truncate max-w-[92px]">${this.escape(col.type.toLowerCase())}</span>
+        `;
+        row.title = `${col.name} — ${col.type}${col.nullable ? '' : ' NOT NULL'}${col.default ? ' DEFAULT ' + col.default : ''}`;
+        body.appendChild(row);
+      });
+      card.appendChild(body);
+
+      card.addEventListener('mouseenter', () => {
+        this.highlightTable(t.name, true);
+        clearTimeout(this.hoverFitTimer);
+        this.hoverFitTimer = setTimeout(() => this.fitCameraToCluster(t.name), 220);
+      });
+      card.addEventListener('mouseleave', () => {
+        clearTimeout(this.hoverFitTimer);
+        this.highlightTable(t.name, false);
+      });
+
+      this.$.cardLayer.appendChild(card);
+    }
+
+    escape(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    rowCenterY(node, colName) {
+      const idx = node.table.columns.findIndex(c => c.name.toLowerCase() === (colName || '').toLowerCase());
+      const safeIdx = idx === -1 ? 0 : idx;
+      return this.headerHeight + safeIdx * this.rowHeight + this.rowHeight / 2;
+    }
+
+    pathFor(fromNode, fromCol, toNode, toCol) {
+      const fromRight = (fromNode.x + fromNode.w / 2) <= (toNode.x + toNode.w / 2);
+      const y1 = fromNode.y + this.rowCenterY(fromNode, fromCol);
+      const y2 = toNode.y + this.rowCenterY(toNode, toCol);
+
+      if (fromNode === toNode) {
+        const x = fromNode.x + fromNode.w;
+        const bulge = 46;
+        return `M ${x} ${y1} C ${x + bulge} ${y1}, ${x + bulge} ${y2}, ${x} ${y2}`;
+      }
+
+      const x1 = fromRight ? fromNode.x + fromNode.w : fromNode.x;
+      const x2 = fromRight ? toNode.x : toNode.x + toNode.w;
+      const dx = Math.max(Math.abs(x2 - x1) * 0.5, 40);
+      const c1x = fromRight ? x1 + dx : x1 - dx;
+      const c2x = fromRight ? x2 - dx : x2 + dx;
+      return `M ${x1} ${y1} C ${c1x} ${y1}, ${c2x} ${y2}, ${x2} ${y2}`;
+    }
+
+    makeEdgePath(rel, kind) {
+      const fromNode = this.nodeMap[rel.fromTable.toLowerCase()];
+      const toNode = this.nodeMap[rel.toTable.toLowerCase()];
+      if (!fromNode || !toNode) return null;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', this.pathFor(fromNode, rel.fromCol, toNode, rel.toCol));
+      path.setAttribute('fill', 'none');
+      if (kind === 'value') {
+        path.setAttribute('stroke', '#F1F5F9');
+        path.setAttribute('stroke-width', '1.3');
+        path.setAttribute('stroke-opacity', '0.16');
+        path.setAttribute('stroke-dasharray', '3 4');
+      } else {
+        path.setAttribute('stroke', this.colorForTable(rel.fromTable));
+        path.setAttribute('stroke-width', '1.6');
+        path.setAttribute('stroke-opacity', '0.55');
+      }
+      path.classList.add('erd-path');
+      path.dataset.kind = kind;
+      path.dataset.from = rel.fromTable.toLowerCase();
+      path.dataset.fromCol = rel.fromCol.toLowerCase();
+      path.dataset.to = rel.toTable.toLowerCase();
+      path.dataset.toCol = rel.toCol.toLowerCase();
+      return path;
+    }
+
+    redrawAllEdges() {
+      this.$.svg.querySelectorAll('path.erd-path').forEach(p => p.remove());
+      this.schema.relations.forEach(rel => {
+        const path = this.makeEdgePath(rel, 'schema');
+        if (path) this.$.svg.appendChild(path);
+      });
+      if (this.valueRelVisible) {
+        this.valueRelations.forEach(rel => {
+          if (rel.isAlsoFK) return; // already drawn as a schema FK line, avoid visual duplicate
+          const path = this.makeEdgePath(rel, 'value');
+          if (path) this.$.svg.appendChild(path);
+        });
+      }
+      this.resizeSvg();
+    }
+
+    redrawEdgesFor(tableName) {
+      const key = tableName.toLowerCase();
+      const allRels = this.schema.relations.map(r => ({ rel: r, kind: 'schema' }))
+        .concat(this.valueRelations.map(r => ({ rel: r, kind: 'value' })));
+      allRels.forEach(({ rel, kind }) => {
+        if (rel.fromTable.toLowerCase() !== key && rel.toTable.toLowerCase() !== key) return;
+        const fromNode = this.nodeMap[rel.fromTable.toLowerCase()];
+        const toNode = this.nodeMap[rel.toTable.toLowerCase()];
+        if (!fromNode || !toNode) return;
+        const selector = `path[data-kind="${kind}"][data-from="${CSS.escape(rel.fromTable.toLowerCase())}"][data-from-col="${CSS.escape(rel.fromCol.toLowerCase())}"][data-to="${CSS.escape(rel.toTable.toLowerCase())}"][data-to-col="${CSS.escape(rel.toCol.toLowerCase())}"]`;
+        const path = this.$.svg.querySelector(selector);
+        if (path) path.setAttribute('d', this.pathFor(fromNode, rel.fromCol, toNode, rel.toCol));
+      });
+    }
+
+    connectedTables(tableName) {
+      const key = tableName.toLowerCase();
+      const connected = new Set();
+      this.schema.relations.forEach(r => {
+        if (r.fromTable.toLowerCase() === key) connected.add(r.toTable.toLowerCase());
+        if (r.toTable.toLowerCase() === key) connected.add(r.fromTable.toLowerCase());
+      });
+      this.valueRelations.forEach(r => {
+        if (r.fromTable.toLowerCase() === key) connected.add(r.toTable.toLowerCase());
+        if (r.toTable.toLowerCase() === key) connected.add(r.fromTable.toLowerCase());
+      });
+      return connected;
+    }
+
+    resizeSvg() {
+      const maxX = Math.max(...this.nodes.map(n => n.x + n.w), 400) + 120;
+      const maxY = Math.max(...this.nodes.map(n => n.y + n.h), 400) + 120;
+      this.$.svg.setAttribute('width', maxX);
+      this.$.svg.setAttribute('height', maxY);
+      this.$.world.style.width = maxX + 'px';
+      this.$.world.style.height = maxY + 'px';
+    }
+
+    highlightTable(tableName, on) {
+      const key = tableName.toLowerCase();
+      const connected = this.connectedTables(tableName);
+      connected.add(key);
+
+      this.$.cardLayer.querySelectorAll('.erd-card').forEach(card => {
+        const isConnected = connected.has(card.dataset.table.toLowerCase());
+        card.classList.toggle('dim', on && !isConnected);
+      });
+      this.$.svg.querySelectorAll('path.erd-path').forEach(path => {
+        const isConnected = path.dataset.from === key || path.dataset.to === key;
+        const isValue = path.dataset.kind === 'value';
+        if (on) {
+          path.setAttribute('stroke-opacity', isConnected ? (isValue ? '0.9' : '0.95') : (isValue ? '0.03' : '0.06'));
+          path.setAttribute('stroke-width', isConnected ? (isValue ? '2.1' : '2.4') : (isValue ? '1.3' : '1.6'));
+          path.classList.toggle('flow-anim', isConnected);
+        } else {
+          path.setAttribute('stroke-opacity', isValue ? '0.16' : '0.55');
+          path.setAttribute('stroke-width', isValue ? '1.3' : '1.6');
+          path.classList.remove('flow-anim');
+        }
+      });
+    }
+
+    /* ---------------- Sidebar ---------------- */
+    renderSidebarList() {
+      this.$.tableList.innerHTML = '';
+      this.schema.tables.forEach(t => {
+        const schemaRelCount = this.schema.relations.filter(r => r.fromTable === t.name || r.toTable === t.name).length;
+        const valueRelCount = this.valueRelations.filter(r => !r.isAlsoFK && (r.fromTable === t.name || r.toTable === t.name)).length;
+        const color = this.colorForTable(t.name);
+        const item = document.createElement('button');
+        item.className = 'w-full text-left px-2.5 py-2 rounded-lg hover:bg-white/5 flex items-center gap-2 group transition-colors';
+        item.dataset.name = t.name.toLowerCase();
+        item.innerHTML = `
+          <span class="w-2 h-2 rounded-full shrink-0" style="background:${color}"></span>
+          <span class="flex-1 min-w-0 font-mono text-[12.5px] text-slate-200 truncate group-hover:text-white">${this.escape(t.name)}</span>
+          <span class="text-[10px] text-slate-500 shrink-0">${t.columns.length}c · ${schemaRelCount}fk${valueRelCount ? ' · ' + valueRelCount + 'v' : ''}</span>
+        `;
+        item.addEventListener('click', () => { this.focusCluster(t.name); this.toggleDrawer(false); });
+        item.addEventListener('mouseenter', () => {
+          this.highlightTable(t.name, true);
+          clearTimeout(this.hoverFitTimer);
+          this.hoverFitTimer = setTimeout(() => this.fitCameraToCluster(t.name), 160);
+        });
+        item.addEventListener('mouseleave', () => {
+          clearTimeout(this.hoverFitTimer);
+          this.highlightTable(t.name, false);
+        });
+        this.$.tableList.appendChild(item);
+      });
+    }
+
+    filterTables(query) {
+      const q = query.trim().toLowerCase();
+      let firstVisible = null;
+      this.$.tableList.querySelectorAll('button').forEach(btn => {
+        const match = q.length === 0 || btn.dataset.name.includes(q);
+        btn.classList.toggle('hidden', !match);
+        if (match && q.length > 0 && !firstVisible) firstVisible = btn.dataset.name;
+      });
+      if (firstVisible) {
+        clearTimeout(this.hoverFitTimer);
+        this.hoverFitTimer = setTimeout(() => this.fitCameraToCluster(firstVisible), 220);
+      }
+    }
+
+    /** Camera-only: fit the viewport around a table + everything it relates to (schema or value-matched). */
+    fitCameraToCluster(tableName) {
+      const node = this.nodeMap[tableName.toLowerCase()];
+      if (!node) return;
+      const connected = this.connectedTables(tableName);
+      const clusterNodes = [node, ...[...connected].map(k => this.nodeMap[k]).filter(Boolean)];
+      const vp = this.$.viewport.getBoundingClientRect();
+      const minX = Math.min(...clusterNodes.map(n => n.x));
+      const minY = Math.min(...clusterNodes.map(n => n.y));
+      const maxX = Math.max(...clusterNodes.map(n => n.x + n.w));
+      const maxY = Math.max(...clusterNodes.map(n => n.y + n.h));
+      const bboxW = Math.max(maxX - minX, 1), bboxH = Math.max(maxY - minY, 1);
+      const scale = Math.min((vp.width - 120) / bboxW, (vp.height - 120) / bboxH, 1.4);
+      const targetZoom = Math.max(0.2, scale);
+      const targetPanX = (vp.width - bboxW * targetZoom) / 2 - minX * targetZoom;
+      const targetPanY = (vp.height - bboxH * targetZoom) / 2 - minY * targetZoom;
+      this.animatePanZoom(targetPanX, targetPanY, targetZoom);
+    }
+
+    /** Click-to-select: fits the cluster and gives a temporary highlight pulse. */
+    focusCluster(tableName) {
+      const node = this.nodeMap[tableName.toLowerCase()];
+      if (!node) return;
+      this.fitCameraToCluster(tableName);
+      node.el.classList.add('pulse-focus');
+      setTimeout(() => node.el.classList.remove('pulse-focus'), 1800);
+      this.highlightTable(tableName, true);
+      clearTimeout(this._focusDimTimer);
+      this._focusDimTimer = setTimeout(() => this.highlightTable(tableName, false), 2200);
+    }
+
+    animatePanZoom(panX, panY, zoom) {
+      this.$.world.style.transition = 'transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)';
+      this.panX = panX; this.panY = panY; this.zoom = zoom;
+      this.applyTransform();
+      clearTimeout(this._transitionClearTimer);
+      this._transitionClearTimer = setTimeout(() => { this.$.world.style.transition = ''; }, 480);
+    }
+
+    fitToScreen() {
+      if (!this.nodes.length) return;
+      const vp = this.$.viewport.getBoundingClientRect();
+      const minX = Math.min(...this.nodes.map(n => n.x));
+      const minY = Math.min(...this.nodes.map(n => n.y));
+      const maxX = Math.max(...this.nodes.map(n => n.x + n.w));
+      const maxY = Math.max(...this.nodes.map(n => n.y + n.h));
+      const bboxW = maxX - minX, bboxH = maxY - minY;
+      const scale = Math.min((vp.width - 80) / bboxW, (vp.height - 80) / bboxH, 1.15);
+      this.zoom = Math.max(0.15, scale);
+      this.panX = (vp.width - bboxW * this.zoom) / 2 - minX * this.zoom;
+      this.panY = (vp.height - bboxH * this.zoom) / 2 - minY * this.zoom;
+      this.applyTransform();
+    }
+
+    updateStats() {
+      this.$.tableCountBadge.textContent = this.schema.tables.length + ' tabel';
+      const total = this.schema.relations.length + this.valueRelations.length;
+      this.$.relCountBadge.textContent = total + ' relasi (' + this.schema.relations.length + ' FK, ' + this.valueRelations.length + ' data)';
+    }
+
+    /* ---------------- Summary modal ---------------- */
+    bindSummaryModal() {
+      this.$.summaryBtn.addEventListener('click', () => this.openSummaryModal());
+      this.$.summaryCloseBtn.addEventListener('click', () => this.closeSummaryModal());
+      this.$.summaryModalBackdrop.addEventListener('click', (e) => {
+        if (e.target === this.$.summaryModalBackdrop) this.closeSummaryModal();
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') this.closeSummaryModal();
+      });
+      this.$.summarySearch.addEventListener('input', (e) => {
+        const val = e.target.value;
+        clearTimeout(this._searchDebounce);
+        this._searchDebounce = setTimeout(() => this.renderSummaryModal(val), 150);
+      });
+
+      // event delegation: column chips + table toggles + anchor value + copy buttons (works across re-renders)
+      this.$.summaryBody.addEventListener('click', (e) => {
+        const chip = e.target.closest('.col-chip');
+        if (chip) {
+          const selected = chip.dataset.selected === 'true';
+          chip.dataset.selected = selected ? 'false' : 'true';
+          this.applyChipStyle(chip, !selected);
+          this.refreshClusterInteractive(parseInt(chip.dataset.cluster, 10));
+          return;
+        }
+        const copyBtn = e.target.closest('.copy-query-btn');
+        if (copyBtn) { this.copyText(copyBtn.parentElement.querySelector('pre').textContent, copyBtn); return; }
+        const copyClusterBtn = e.target.closest('.copy-cluster-query-btn');
+        if (copyClusterBtn) {
+          const pre = copyClusterBtn.parentElement.querySelector('.cluster-query');
+          if (pre) this.copyText(pre.textContent, copyClusterBtn);
+          return;
+        }
+      });
+
+      this.$.summaryBody.addEventListener('change', (e) => {
+        const toggle = e.target.closest('.table-toggle');
+        if (toggle) {
+          const idx = parseInt(toggle.dataset.cluster, 10);
+          const cluster = this.valueClusters && this.valueClusters[idx];
+          if (!cluster) return;
+          const table = toggle.dataset.table;
+          if (toggle.checked) cluster.includedTables.add(table);
+          else if (cluster.includedTables.size > 1) cluster.includedTables.delete(table);
+          else toggle.checked = true; // keep at least one table included
+          this.rerenderClusterCard(idx);
+        }
+      });
+
+      // Cluster Canvas Interactivity
+      let activeClusterDrag = null;
+
+      this.$.summaryBody.addEventListener('mousedown', (e) => {
+        const header = e.target.closest('.cluster-card-header');
+        if (header) {
+          e.stopPropagation();
+          const card = header.closest('.cluster-table-card');
+          const idx = parseInt(card.dataset.cluster, 10);
+          const tableName = card.dataset.table;
+          const cluster = this.valueClusters && this.valueClusters[idx];
+          if (!cluster) return;
+          const cs = cluster.canvasState;
+          const node = cs.nodes[tableName];
+          activeClusterDrag = {
+            type: 'card', idx, tableName, node,
+            startMouseX: e.clientX, startMouseY: e.clientY,
+            startX: node.x, startY: node.y, cs, card
+          };
+          header.classList.add('cursor-grabbing');
+          return;
+        }
+
+        const viewport = e.target.closest('.cluster-viewport');
+        if (viewport && !e.target.closest('.cluster-table-card') && !e.target.closest('button')) {
+          const idx = parseInt(viewport.dataset.cluster, 10);
+          const cluster = this.valueClusters && this.valueClusters[idx];
+          if (!cluster) return;
+          const cs = cluster.canvasState;
+          activeClusterDrag = {
+            type: 'pan', idx,
+            startMouseX: e.clientX, startMouseY: e.clientY,
+            startPanX: cs.panX, startPanY: cs.panY, cs, viewport
+          };
+          viewport.classList.add('cursor-grabbing');
+        }
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!activeClusterDrag) return;
+        if (activeClusterDrag.type === 'card') {
+          const { idx, node, startMouseX, startMouseY, startX, startY, cs, card } = activeClusterDrag;
+          const dx = (e.clientX - startMouseX) / cs.zoom;
+          const dy = (e.clientY - startMouseY) / cs.zoom;
+          node.x = startX + dx;
+          node.y = startY + dy;
+          card.style.left = node.x + 'px';
+          card.style.top = node.y + 'px';
+          this.redrawClusterSVG(idx);
+        } else if (activeClusterDrag.type === 'pan') {
+          const { idx, startMouseX, startMouseY, startPanX, startPanY, cs, viewport } = activeClusterDrag;
+          const dx = e.clientX - startMouseX;
+          const dy = e.clientY - startMouseY;
+          cs.panX = startPanX + dx;
+          cs.panY = startPanY + dy;
+          const world = viewport.querySelector(`.cluster-world[data-cluster="${idx}"]`);
+          if (world) world.style.transform = `translate(${cs.panX}px, ${cs.panY}px) scale(${cs.zoom})`;
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (activeClusterDrag) {
+          if (activeClusterDrag.type === 'pan' && activeClusterDrag.viewport) {
+            activeClusterDrag.viewport.classList.remove('cursor-grabbing');
+          }
+          activeClusterDrag = null;
+        }
+      });
+
+      this.$.summaryBody.addEventListener('wheel', (e) => {
+        const viewport = e.target.closest('.cluster-viewport');
+        if (!viewport) return;
+        e.preventDefault();
+        const idx = parseInt(viewport.dataset.cluster, 10);
+        const cluster = this.valueClusters && this.valueClusters[idx];
+        if (!cluster) return;
+        const cs = cluster.canvasState;
+        const factor = e.deltaY > 0 ? 0.9 : 1.1;
+        const newZoom = Math.min(2.5, Math.max(0.2, cs.zoom * factor));
+        cs.zoom = newZoom;
+        const world = viewport.querySelector(`.cluster-world[data-cluster="${idx}"]`);
+        if (world) world.style.transform = `translate(${cs.panX}px, ${cs.panY}px) scale(${cs.zoom})`;
+        const label = viewport.querySelector(`.cluster-zoom-label[data-cluster="${idx}"]`);
+        if (label) label.textContent = Math.round(cs.zoom * 100) + '%';
+      }, { passive: false });
+
+      this.$.summaryBody.addEventListener('click', (e) => {
+        const zOut = e.target.closest('.cluster-btn-zoom-out');
+        const zIn = e.target.closest('.cluster-btn-zoom-in');
+        const zFit = e.target.closest('.cluster-btn-fit');
+        if (zOut || zIn || zFit) {
+          const btn = zOut || zIn || zFit;
+          const idx = parseInt(btn.dataset.cluster, 10);
+          const cluster = this.valueClusters && this.valueClusters[idx];
+          if (!cluster) return;
+          const cs = cluster.canvasState;
+          const cardEl = this.$.summaryBody.querySelector(`[data-cluster-card="${idx}"]`);
+          const viewport = cardEl && cardEl.querySelector(`.cluster-viewport[data-cluster="${idx}"]`);
+          const world = cardEl && cardEl.querySelector(`.cluster-world[data-cluster="${idx}"]`);
+          if (!viewport || !world) return;
+
+          if (zOut) cs.zoom = Math.max(0.2, cs.zoom / 1.2);
+          else if (zIn) cs.zoom = Math.min(2.5, cs.zoom * 1.2);
+          else if (zFit) {
+            const nodesArr = Object.values(cs.nodes);
+            if (nodesArr.length) {
+              const minX = Math.min(...nodesArr.map(n => n.x));
+              const minY = Math.min(...nodesArr.map(n => n.y));
+              const maxX = Math.max(...nodesArr.map(n => n.x + n.w));
+              const maxY = Math.max(...nodesArr.map(n => n.y + n.h));
+              const bboxW = Math.max(maxX - minX, 1), bboxH = Math.max(maxY - minY, 1);
+              const scale = Math.min(540 / bboxW, 240 / bboxH, 1.2);
+              cs.zoom = Math.max(0.2, scale);
+              cs.panX = (600 - bboxW * cs.zoom) / 2 - minX * cs.zoom;
+              cs.panY = (280 - bboxH * cs.zoom) / 2 - minY * cs.zoom;
+            }
+          }
+
+          world.style.transform = `translate(${cs.panX}px, ${cs.panY}px) scale(${cs.zoom})`;
+          const label = viewport.querySelector(`.cluster-zoom-label[data-cluster="${idx}"]`);
+          if (label) label.textContent = Math.round(cs.zoom * 100) + '%';
+        }
+      });
+
+      this.$.summaryBody.addEventListener('input', (e) => {
+        const anchorInput = e.target.closest('.anchor-value-input');
+        if (anchorInput) {
+          const idx = parseInt(anchorInput.dataset.cluster, 10);
+          const cluster = this.valueClusters && this.valueClusters[idx];
+          if (!cluster) return;
+          cluster.anchorValue = anchorInput.value;
+          clearTimeout(this._anchorDebounce);
+          this._anchorDebounce = setTimeout(() => this.refreshClusterInteractive(idx), 150);
+        }
+      });
+    }
+
+    applyChipStyle(chip, isSelected) {
+      chip.classList.toggle('bg-teal-400/15', isSelected);
+      chip.classList.toggle('border-teal-400/40', isSelected);
+      chip.classList.toggle('text-teal-200', isSelected);
+      chip.classList.toggle('bg-white/[0.03]', !isSelected);
+      chip.classList.toggle('border-white/10', !isSelected);
+      chip.classList.toggle('text-slate-400', !isSelected);
+    }
+
+    openSummaryModal() {
+      if (!this.schema) return;
+      this.$.summarySearch.value = '';
+      this.renderSummaryModal('');
+      this.$.summaryModalBackdrop.classList.remove('hidden');
+      this.$.summaryModalBackdrop.classList.add('flex');
+    }
+    closeSummaryModal() {
+      this.$.summaryModalBackdrop.classList.add('hidden');
+      this.$.summaryModalBackdrop.classList.remove('flex');
+    }
+
+    pickDescriptiveColumn(tableName, excludeCol) {
+      const t = this.schema.tables.find(x => x.name === tableName);
+      if (!t) return null;
+      const preferred = ['name', 'title', 'label', 'address', 'email', 'phone', 'code', 'description'];
+      for (const p of preferred) {
+        const c = t.columns.find(c => c.name.toLowerCase().includes(p) && c.name.toLowerCase() !== (excludeCol || '').toLowerCase());
+        if (c) return c.name;
+      }
+      const fallback = t.columns.find(c =>
+        !c.isPK && c.name.toLowerCase() !== (excludeCol || '').toLowerCase() &&
+        !/^(created_at|updated_at|deleted_at)$/i.test(c.name) && !/TEXT|BLOB|JSON/i.test(c.type)
+      );
+      return fallback ? fallback.name : (t.columns[0] ? t.columns[0].name : null);
+    }
+
+    buildExampleQuery(rel, kind) {
+      const descCol = this.pickDescriptiveColumn(rel.toTable, rel.toCol) || rel.toCol;
+      const noteLine = kind === 'value'
+        ? `-- Relasi ditemukan dari kecocokan data (bukan FK eksplisit) — pastikan match case & tipe data saat query`
+        : `-- Relasi foreign key resmi pada skema`;
+      return [
+        noteLine,
+        `SELECT a.${rel.fromCol}, a.*, b.${descCol}`,
+        `FROM \`${rel.fromTable}\` a`,
+        `JOIN \`${rel.toTable}\` b ON a.${rel.fromCol} = b.${rel.toCol}`,
+        `WHERE a.${rel.fromCol} = 'CONTOH_NILAI';`
+      ].join('\n');
+    }
+
+    async copyText(text, btnEl) {
+      try {
+        await navigator.clipboard.writeText(text);
+        const original = btnEl.textContent;
+        btnEl.textContent = 'Tersalin!';
+        setTimeout(() => { btnEl.textContent = original; }, 1400);
+      } catch (err) { /* clipboard unavailable, ignore silently */ }
+    }
+
+    /* ---- Multi-table value-relation clustering (connected components over table.col graph) ---- */
+    buildValueClusters() {
+      const SEP = '\u0001';
+      const parent = {};
+      const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+      const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+      const ensure = k => { if (!(k in parent)) parent[k] = k; return k; };
+
+      this.valueRelations.forEach(r => {
+        const a = ensure(r.fromTable + SEP + r.fromCol);
+        const b = ensure(r.toTable + SEP + r.toCol);
+        union(a, b);
+      });
+
+      const groups = {};
+      Object.keys(parent).forEach(k => {
+        const root = find(k);
+        (groups[root] = groups[root] || []).push(k);
+      });
+
+      const clusters = [];
+      Object.values(groups).forEach(keys => {
+        if (keys.length < 2) return;
+        const members = keys.map(k => { const [table, col] = k.split(SEP); return { table, col }; });
+        const memberSet = new Set(keys);
+        const edges = this.valueRelations.filter(r =>
+          memberSet.has(r.fromTable + SEP + r.fromCol) && memberSet.has(r.toTable + SEP + r.toCol)
+        );
+        const tableCount = new Set(members.map(m => m.table)).size;
+        if (tableCount < 2) return;
+        const { total, samples } = this.computeClusterSamples(members);
+        const allTables = [...new Set(members.map(m => m.table))];
+        clusters.push({
+          members, edges, tableCount, sampleTotal: total, samples,
+          includedTables: new Set(allTables),
+          anchorValue: undefined,
+          _anchorTable: undefined
+        });
+      });
+
+      clusters.sort((a, b) => b.tableCount - a.tableCount || b.sampleTotal - a.sampleTotal);
+      this.valueClusters = clusters;
+    }
+
+    computeClusterSamples(members) {
+      const valueCount = new Map();
+      members.forEach(m => {
+        const data = this.insertTables[m.table];
+        if (!data) return;
+        const idx = data.columns.findIndex(c => c.toLowerCase() === m.col.toLowerCase());
+        if (idx === -1) return;
+        data.colData[idx].values.forEach(v => {
+          valueCount.set(v, (valueCount.get(v) || 0) + 1);
+        });
+      });
+      const arr = [...valueCount.entries()].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1]);
+      return { total: arr.length, samples: arr.slice(0, 10).map(([v]) => v) };
+    }
+
+    getSelectedCols(cluster) {
+      const seen = new Set();
+      const result = [];
+      cluster.members.forEach(m => {
+        const k = m.table + '.' + m.col;
+        if (!seen.has(k)) { seen.add(k); result.push({ table: m.table, col: m.col }); }
+      });
+      return result;
+    }
+
+    /** Computes a join plan (spanning tree) over only the currently-included tables of a cluster.
+        Shared by buildClusterQuery() (SQL text) and executeClusterJoin() (real in-memory join). */
+    buildJoinPlan(cluster) {
+      const colForTable = {};
+      cluster.members.forEach(m => { if (!colForTable[m.table]) colForTable[m.table] = m.col; });
+      const allTables = Object.keys(colForTable);
+      const included = cluster.includedTables || new Set(allTables);
+      const tables = allTables.filter(t => included.has(t));
+      if (!tables.length) return null;
+
+      const adj = {};
+      tables.forEach(t => adj[t] = []);
+      cluster.edges.forEach(e => {
+        if (!adj[e.fromTable] || !adj[e.toTable]) return;
+        adj[e.fromTable].push({ to: e.toTable, viaFrom: e.fromCol, viaTo: e.toCol });
+        adj[e.toTable].push({ to: e.fromTable, viaFrom: e.toCol, viaTo: e.fromCol });
+      });
+
+      const visited = new Set([tables[0]]);
+      const joinSteps = [];
+      const queue = [tables[0]];
+      while (queue.length) {
+        const cur = queue.shift();
+        (adj[cur] || []).forEach(edge => {
+          if (!visited.has(edge.to)) {
+            visited.add(edge.to);
+            joinSteps.push({ from: cur, fromCol: edge.viaFrom, to: edge.to, toCol: edge.viaTo });
+            queue.push(edge.to);
+          }
+        });
+      }
+
+      const alias = {};
+      tables.forEach((t, i) => alias[t] = 't' + i);
+      const missing = tables.filter(t => !visited.has(t));
+      const excludedTables = allTables.filter(t => !included.has(t));
+      return { tables, colForTable, alias, joinSteps, missing, excludedTables, root: tables[0] };
+    }
+
+    /** Builds a multi-table JOIN query by walking a spanning tree of the cluster's internal edges. */
+    buildClusterQuery(cluster, selectedColumns) {
+      const plan = this.buildJoinPlan(cluster);
+      if (!plan) return '-- Tidak ada tabel yang diikutkan. Aktifkan minimal satu tabel di atas.';
+      const { tables, colForTable, alias, joinSteps, missing, excludedTables, root } = plan;
+
+      const rawSelectCols = (selectedColumns && selectedColumns.length) ? selectedColumns : this.getSelectedCols(cluster);
+      let selectCols = rawSelectCols.filter(c => tables.includes(c.table));
+      if (!selectCols.length) selectCols = tables.map(t => ({ table: t, col: colForTable[t] }));
+
+      const anchorVal = (cluster.anchorValue !== undefined && cluster.anchorValue !== null && cluster.anchorValue !== '')
+        ? cluster.anchorValue : 'CONTOH_NILAI';
+
+      const lines = [];
+      lines.push('-- Relasi dari kecocokan data (bukan FK eksplisit) — nilai harus match persis (case-sensitive)');
+      lines.push('SELECT');
+      lines.push(selectCols.map((c, i) => `  ${alias[c.table]}.${c.col} AS ${c.table}_${c.col}${i < selectCols.length - 1 ? ',' : ''}`).join('\n'));
+      lines.push(`FROM \`${root}\` ${alias[root]}`);
+      joinSteps.forEach(step => {
+        lines.push(`JOIN \`${step.to}\` ${alias[step.to]} ON ${alias[step.from]}.${step.fromCol} = ${alias[step.to]}.${step.toCol}`);
+      });
+      lines.push(`WHERE ${alias[root]}.${colForTable[root]} = '${String(anchorVal).replace(/'/g, "''")}';`);
+      if (missing.length) {
+        lines.push(`-- Catatan: ${missing.join(', ')} tidak terhubung langsung ke tabel dasar dalam grup ini.`);
+      }
+      if (excludedTables.length) {
+        lines.push(`-- Tabel tidak diikutkan: ${excludedTables.join(', ')}`);
+      }
+      return lines.join('\n');
+    }
+
+    /** Distinct values available for the current root/anchor column, used to populate the value picker. */
+    getAnchorOptions(cluster) {
+      const plan = this.buildJoinPlan(cluster);
+      if (!plan) return { table: null, col: null, values: [], totalDistinct: 0 };
+      const { root, colForTable } = plan;
+      const data = this.insertTables[root];
+      if (!data) return { table: root, col: colForTable[root], values: [], totalDistinct: 0 };
+      const idx = data.columns.findIndex(c => c.toLowerCase() === colForTable[root].toLowerCase());
+      if (idx === -1) return { table: root, col: colForTable[root], values: [], totalDistinct: 0 };
+      const DATALIST_CAP = 1000;
+      const allValues = [...data.colData[idx].values];
+      return { table: root, col: colForTable[root], values: allValues.slice(0, DATALIST_CAP), totalDistinct: allValues.length };
+    }
+
+    /** Ensures cluster.anchorValue is set to a real value for the current root table, resetting it
+        whenever the root table changes (e.g. after toggling tables in/out of the join). */
+    initClusterAnchor(cluster, force) {
+      const plan = this.buildJoinPlan(cluster);
+      if (!plan) { cluster.anchorValue = null; cluster._anchorTable = null; return; }
+      if (!force && cluster._anchorTable === plan.root && cluster.anchorValue) return;
+      cluster._anchorTable = plan.root;
+
+      const data = this.insertTables[plan.root];
+      const CANDIDATE_LIMIT = 25;
+      const candidates = [];
+      if (data && data.rows && data.rows.length) {
+        const seen = new Set();
+        for (const r of data.rows) {
+          const v = r[plan.colForTable[plan.root]];
+          if (v === undefined || v === null || v === '' || seen.has(v)) continue;
+          seen.add(v);
+          candidates.push(v);
+          if (candidates.length >= CANDIDATE_LIMIT) break;
+        }
+      }
+      if (!candidates.length) {
+        const opts = this.getAnchorOptions(cluster);
+        candidates.push(...opts.values.slice(0, CANDIDATE_LIMIT));
+      }
+
+      cluster.anchorValue = candidates.length ? candidates[0] : null;
+      // A plain JOIN requires the value to exist in every currently-included table at once, which
+      // often fails for the very first candidate when some related tables are sparse/optional
+      // (e.g. not every transaction has an add-on or OTP row). Probe a few real values so the
+      // first thing the user sees is actual joined data rather than an empty result.
+      for (const cand of candidates) {
+        cluster.anchorValue = cand;
+        const probe = this.executeClusterJoin(cluster, this.getSelectedCols(cluster), 1);
+        if (!probe.error && probe.rows.length) break;
+      }
+    }
+
+    /** Memoized Map<stringValue, Row[]> index for a given table+column, used to make repeated joins fast. */
+    getRowIndex(table, col) {
+      this._rowIndexCache = this._rowIndexCache || {};
+      const key = table + '\u0001' + col;
+      if (this._rowIndexCache[key]) return this._rowIndexCache[key];
+      const data = this.insertTables[table];
+      const idx = new Map();
+      if (data && data.rows) {
+        data.rows.forEach(r => {
+          const v = r[col];
+          if (v === undefined || v === null) return;
+          const k = String(v);
+          let arr = idx.get(k);
+          if (!arr) { arr = []; idx.set(k, arr); }
+          arr.push(r);
+        });
+      }
+      this._rowIndexCache[key] = idx;
+      return idx;
+    }
+
+    /** Executes the cluster's join plan against actual stored row data, filtered by the anchor value.
+        This produces the real result rows shown live below the query, not just the SQL text. */
+    executeClusterJoin(cluster, selectedColumns, previewCap) {
+      const plan = this.buildJoinPlan(cluster);
+      if (!plan) return { cols: [], rows: [], totalMatched: 0, capped: false, error: 'Tidak ada tabel yang diikutkan.' };
+      const { tables, colForTable, joinSteps, root } = plan;
+
+      const rootData = this.insertTables[root];
+      if (!rootData || !rootData.rows || !rootData.rows.length) {
+        return { cols: [], rows: [], totalMatched: 0, capped: false, error: `Tidak ada data baris tersimpan untuk tabel \`${root}\`.` };
+      }
+      const anchorCol = colForTable[root];
+      const anchorVal = cluster.anchorValue;
+      if (anchorVal === undefined || anchorVal === null || anchorVal === '') {
+        return { cols: [], rows: [], totalMatched: 0, capped: false, error: 'Pilih nilai contoh terlebih dahulu untuk melihat data.' };
+      }
+
+      const SAFETY_CAP = 1000;
+      let current = rootData.rows
+        .filter(r => r[anchorCol] !== undefined && r[anchorCol] !== null && String(r[anchorCol]) === String(anchorVal))
+        .map(r => ({ [root]: r }));
+
+      for (const step of joinSteps) {
+        const targetData = this.insertTables[step.to];
+        if (!targetData || !targetData.rows || !targetData.rows.length) { current = []; break; }
+        const idx = this.getRowIndex(step.to, step.toCol);
+        const next = [];
+        outer:
+        for (const acc of current) {
+          const fromRow = acc[step.from];
+          if (!fromRow) continue;
+          const key = fromRow[step.fromCol];
+          if (key === undefined || key === null) continue;
+          const matches = idx.get(String(key));
+          if (!matches) continue;
+          for (const m of matches) {
+            next.push(Object.assign({}, acc, { [step.to]: m }));
+            if (next.length >= SAFETY_CAP) break outer;
+          }
+        }
+        current = next;
+        if (!current.length) break;
+      }
+
+      const totalMatched = current.length;
+      const cap = previewCap || 20;
+      const capped = totalMatched > cap;
+      const shown = current.slice(0, cap);
+
+      const rawSelectCols = (selectedColumns && selectedColumns.length) ? selectedColumns : this.getSelectedCols(cluster);
+      let selectCols = rawSelectCols.filter(c => tables.includes(c.table));
+      if (!selectCols.length) selectCols = tables.map(t => ({ table: t, col: colForTable[t] }));
+
+      const rows = shown.map(acc => selectCols.map(c => {
+        const r = acc[c.table];
+        return r ? r[c.col] : null;
+      }));
+
+      return { cols: selectCols, rows, totalMatched, capped, error: null };
+    }
+
+    renderClusterResultsTable(result) {
+      if (result.error) {
+        return `<p class="text-[11px] text-amber-300/90 px-1 py-2">${this.escape(result.error)}</p>`;
+      }
+      if (!result.rows.length) {
+        return `<p class="text-[11px] text-slate-500 px-1 py-2">Tidak ada baris yang cocok di <span class="text-slate-400">semua</span> tabel yang diikutkan untuk nilai ini — JOIN mengharuskan datanya ada di setiap tabel sekaligus. Coba nilai lain, atau nonaktifkan centang tabel yang relasinya opsional/jarang di atas.</p>`;
+      }
+      const headerHtml = result.cols.map(c =>
+        `<th class="px-2 py-1.5 text-left font-semibold text-slate-300 border-b border-white/10 whitespace-nowrap">${this.escape(c.table)}.${this.escape(c.col)}</th>`
+      ).join('');
+      const bodyHtml = result.rows.map(row => `<tr class="hover:bg-white/[0.03]">${row.map(v =>
+        `<td class="px-2 py-1 border-b border-white/5 text-slate-300 font-mono whitespace-nowrap max-w-[220px] overflow-hidden text-ellipsis">${(v === null || v === undefined) ? '<span class="text-slate-600 italic">NULL</span>' : this.escape(String(v))}</td>`
+      ).join('')}</tr>`).join('');
+      const noteHtml = result.capped
+        ? `<div class="text-[10px] text-slate-500 px-1 pt-1.5">Menampilkan ${result.rows.length} dari ${result.totalMatched} baris hasil.</div>`
+        : `<div class="text-[10px] text-slate-500 px-1 pt-1.5">${result.totalMatched} baris hasil ditemukan.</div>`;
+      return `<div class="overflow-x-auto rounded-md border border-white/10"><table class="min-w-full text-[10.5px]"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>${noteHtml}`;
+    }
+
+    /** Refreshes just the query text + results table for a cluster (column-chip toggle, anchor value typing).
+        Does not touch table-toggle checkboxes or rebuild chip groups. */
+    refreshClusterInteractive(idx) {
+      const cluster = this.valueClusters && this.valueClusters[idx];
+      if (!cluster) return;
+      const chips = this.$.summaryBody.querySelectorAll(`.col-chip[data-cluster="${idx}"][data-selected="true"]`);
+      const selected = [...chips].map(c => ({ table: c.dataset.table, col: c.dataset.col }));
+      const pre = this.$.summaryBody.querySelector(`.cluster-query[data-cluster="${idx}"]`);
+      if (pre) pre.textContent = this.buildClusterQuery(cluster, selected);
+      const resultsEl = this.$.summaryBody.querySelector(`.cluster-results[data-cluster="${idx}"]`);
+      if (resultsEl) {
+        const result = this.executeClusterJoin(cluster, selected, 20);
+        resultsEl.innerHTML = this.renderClusterResultsTable(result);
+      }
+    }
+
+    /** Full rebuild of a cluster card — used when a table is toggled in/out of the join, since that
+        changes which chip groups are enabled and possibly which table is the join root/anchor. */
+    rerenderClusterCard(idx) {
+      const cluster = this.valueClusters && this.valueClusters[idx];
+      if (!cluster) return;
+      this.initClusterAnchor(cluster);
+      const wrapper = this.$.summaryBody.querySelector(`[data-cluster-card="${idx}"]`);
+      if (wrapper) { wrapper.outerHTML = this.renderClusterCard(cluster, idx); this.mountClusterCanvas(idx); }
+    }
+
+    /* ---------------- Cluster Canvas Interactivity ---------------- */
+    initClusterCanvasState(cluster) {
+      if (cluster.canvasState) return;
+      const tables = [...new Set(cluster.members.map(m => m.table))];
+      const colForTable = {};
+      cluster.members.forEach(m => { if (!colForTable[m.table]) colForTable[m.table] = m.col; });
+      const nodes = {};
+      const numCols = Math.min(3, Math.ceil(Math.sqrt(tables.length)));
+      tables.forEach((t, i) => {
+        const col = i % numCols;
+        const row = Math.floor(i / numCols);
+        // Generous non-overlapping grid layout by default
+        nodes[t] = { table: t, col: colForTable[t], x: 40 + col * 240, y: 30 + row * 130, w: 190, h: 68 };
+      });
+      cluster.canvasState = {
+        nodes,
+        zoom: 0.85,
+        panX: 30,
+        panY: 30
+      };
+    }
+
+    renderClusterCanvasHtml(cluster, idx) {
+      this.initClusterCanvasState(cluster);
+      const zoomPct = Math.round(cluster.canvasState.zoom * 100);
+      return `
+        <div class="relative w-full h-[320px] bg-[#0A0E14] border border-white/10 rounded-xl overflow-hidden select-none mb-3 cluster-viewport cursor-grab" data-cluster="${idx}">
+          <div class="absolute inset-0 pointer-events-none" style="background-image: radial-gradient(#1C2530 1.4px, transparent 1.4px); background-size: 24px 24px;"></div>
+          <div class="absolute top-2.5 right-2.5 z-20 flex items-center gap-1 bg-[#0D1219]/90 border border-white/10 rounded-lg p-1 font-mono">
+            <button type="button" class="cluster-btn-zoom-out w-7 h-7 rounded hover:bg-white/10 text-slate-300 font-bold flex items-center justify-center text-xs" data-cluster="${idx}">-</button>
+            <span class="cluster-zoom-label w-11 text-center font-mono text-[11px] text-slate-400 select-none" data-cluster="${idx}">${zoomPct}%</span>
+            <button type="button" class="cluster-btn-zoom-in w-7 h-7 rounded hover:bg-white/10 text-slate-300 font-bold flex items-center justify-center text-xs" data-cluster="${idx}">+</button>
+            <button type="button" class="cluster-btn-fit px-2 h-7 rounded hover:bg-white/10 text-slate-300 font-mono text-[11px]" data-cluster="${idx}">Fit</button>
+          </div>
+          <div class="absolute bottom-2 left-2.5 z-10 text-[10px] text-slate-500 font-mono pointer-events-none">
+            ✦ Drag tabel untuk menggeser · Scroll untuk Zoom · Drag latar untuk Pan
+          </div>
+          <div class="cluster-world absolute top-0 left-0 origin-top-left" data-cluster="${idx}">
+            <svg class="cluster-svg absolute top-0 left-0 overflow-visible pointer-events-none" data-cluster="${idx}"></svg>
+            <div class="cluster-cards-layer absolute top-0 left-0" data-cluster="${idx}"></div>
+          </div>
+        </div>`;
+    }
+
+    mountClusterCanvas(idx) {
+      const cluster = this.valueClusters && this.valueClusters[idx];
+      if (!cluster) return;
+      this.initClusterCanvasState(cluster);
+      const cardEl = this.$.summaryBody.querySelector(`[data-cluster-card="${idx}"]`);
+      if (!cardEl) return;
+
+      const viewport = cardEl.querySelector(`.cluster-viewport[data-cluster="${idx}"]`);
+      const world = cardEl.querySelector(`.cluster-world[data-cluster="${idx}"]`);
+      const svg = cardEl.querySelector(`.cluster-svg[data-cluster="${idx}"]`);
+      const cardsLayer = cardEl.querySelector(`.cluster-cards-layer[data-cluster="${idx}"]`);
+      if (!world || !svg || !cardsLayer) return;
+
+      const cs = cluster.canvasState;
+      world.style.transform = `translate(${cs.panX}px, ${cs.panY}px) scale(${cs.zoom})`;
+
+      cardsLayer.innerHTML = '';
+      Object.entries(cs.nodes).forEach(([tableName, node]) => {
+        const color = this.colorForTable(tableName);
+        const isIncluded = cluster.includedTables.has(tableName);
+        const card = document.createElement('div');
+        card.className = `cluster-table-card absolute rounded-xl bg-[#111826] border border-white/10 shadow-lg shadow-black/30 select-none ${isIncluded ? '' : 'opacity-40'}`;
+        card.style.left = node.x + 'px';
+        card.style.top = node.y + 'px';
+        card.style.width = node.w + 'px';
+        card.dataset.cluster = idx;
+        card.dataset.table = tableName;
+
+        card.innerHTML = `
+          <div class="cluster-card-header h-8 rounded-t-xl flex items-center justify-between px-3 border-b border-white/10 cursor-grab active:cursor-grabbing" style="background: linear-gradient(180deg, ${color}26, transparent)">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span class="w-2 h-2 rounded-full shrink-0" style="background:${color}"></span>
+              <span class="font-mono text-[12px] font-semibold text-white truncate">${this.escape(tableName)}</span>
+            </div>
+          </div>
+          <div class="px-3 py-1.5 text-[11px] font-mono text-teal-300 flex items-center gap-1">
+            <span class="text-slate-500">key:</span>
+            <span class="truncate">${this.escape(node.col)}</span>
+          </div>`;
+
+        cardsLayer.appendChild(card);
+      });
+
+      this.redrawClusterSVG(idx);
+    }
+
+    redrawClusterSVG(idx) {
+      const cluster = this.valueClusters && this.valueClusters[idx];
+      if (!cluster) return;
+      const cardEl = this.$.summaryBody.querySelector(`[data-cluster-card="${idx}"]`);
+      if (!cardEl) return;
+      const svg = cardEl.querySelector(`.cluster-svg[data-cluster="${idx}"]`);
+      if (!svg) return;
+
+      const cs = cluster.canvasState;
+      svg.innerHTML = '';
+
+      const seenEdge = new Set();
+      cluster.edges.forEach(e => {
+        const key = [e.fromTable, e.toTable].sort().join('-');
+        if (seenEdge.has(key)) return;
+        seenEdge.add(key);
+
+        const n1 = cs.nodes[e.fromTable];
+        const n2 = cs.nodes[e.toTable];
+        if (!n1 || !n2) return;
+
+        const x1 = n1.x + n1.w / 2;
+        const y1 = n1.y + n1.h / 2;
+        const x2 = n2.x + n2.w / 2;
+        const y2 = n2.y + n2.h / 2;
+
+        const dx = Math.max(Math.abs(x2 - x1) * 0.4, 30);
+        const fromRight = x1 <= x2;
+        const c1x = fromRight ? x1 + dx : x1 - dx;
+        const c2x = fromRight ? x2 - dx : x2 + dx;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M ${x1} ${y1} C ${c1x} ${y1}, ${c2x} ${y2}, ${x2} ${y2}`);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', '#5EEAD4');
+        path.setAttribute('stroke-width', '1.8');
+        path.setAttribute('stroke-dasharray', '4 4');
+        path.setAttribute('stroke-opacity', '0.7');
+        svg.appendChild(path);
+      });
+    }
+
+    mountAllClusterCanvases() {
+      if (!this.valueClusters) return;
+      this.valueClusters.forEach((_, idx) => this.mountClusterCanvas(idx));
+    }
+
+    renderClusterCard(cluster, idx) {
+      this.initClusterAnchor(cluster);
+
+      const membersByTable = {};
+      cluster.members.forEach(m => (membersByTable[m.table] = membersByTable[m.table] || new Set()).add(m.col));
+      const tables = Object.keys(membersByTable);
+      const included = cluster.includedTables;
+
+      const chipsHtml = tables.map(t => {
+        const tableSchema = this.schema.tables.find(x => x.name === t);
+        const cols = tableSchema ? tableSchema.columns : [...membersByTable[t]].map(c => ({ name: c }));
+        const keyCols = membersByTable[t];
+        const isIncluded = included.has(t);
+        return `
+          <div class="mb-2.5">
+            <div class="text-[11px] font-mono font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
+              <input type="checkbox" class="table-toggle w-3.5 h-3.5 accent-sky-400 cursor-pointer shrink-0" data-cluster="${idx}" data-table="${this.escape(t)}" ${isIncluded ? 'checked' : ''}>
+              <span class="w-2 h-2 rounded-full shrink-0" style="background:${this.colorForTable(t)}"></span>${this.escape(t)}
+              <span class="text-[9.5px] font-normal text-slate-500">(${cols.length} kolom)</span>
+            </div>
+            <div class="flex flex-wrap gap-1 ${isIncluded ? '' : 'opacity-35 pointer-events-none'}">
+              ${cols.map(c => {
+                const isKey = keyCols.has(c.name);
+                return `<button type="button" class="col-chip px-2 py-1 rounded-md text-[10.5px] font-mono border transition-colors ${isKey ? 'bg-teal-400/15 border-teal-400/40 text-teal-200' : 'bg-white/[0.03] border-white/10 text-slate-400 hover:border-white/25'}" data-cluster="${idx}" data-table="${this.escape(t)}" data-col="${this.escape(c.name)}" data-selected="${isKey ? 'true' : 'false'}">${this.escape(c.name)}</button>`;
+              }).join('')}
+            </div>
+          </div>`;
+      }).join('');
+
+      const samplesHtml = cluster.samples.length
+        ? `<div class="flex flex-wrap gap-1 mb-3">${cluster.samples.slice(0, 10).map(s => `<span class="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-[10px] font-mono text-slate-300">${this.escape(String(s))}</span>`).join('')}${cluster.sampleTotal > 10 ? `<span class="px-1.5 py-0.5 text-[10px] text-slate-500">+${cluster.sampleTotal - 10} lagi</span>` : ''}</div>`
+        : '';
+
+      const selectedCols = this.getSelectedCols(cluster);
+      const initialQuery = this.buildClusterQuery(cluster, selectedCols);
+      const initialResult = this.executeClusterJoin(cluster, selectedCols, 20);
+      const plan = this.buildJoinPlan(cluster);
+      const anchorOpts = this.getAnchorOptions(cluster);
+
+      const anchorHtml = plan ? `
+          <div class="mb-3">
+            <label class="text-[11px] font-semibold text-slate-400 mb-1 block">
+              Pilih nilai contoh untuk WHERE (kolom dasar: <span class="font-mono text-teal-300">${this.escape(plan.root)}.${this.escape(plan.colForTable[plan.root])}</span>):
+            </label>
+            <input type="text" list="anchor-datalist-${idx}" class="anchor-value-input w-full h-8 px-2.5 rounded-md bg-black/30 border border-white/10 text-[11px] font-mono text-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-400/60" data-cluster="${idx}" value="${this.escape(String(cluster.anchorValue ?? ''))}" placeholder="Ketik atau pilih nilai dari data...">
+            <datalist id="anchor-datalist-${idx}">
+              ${anchorOpts.values.map(v => `<option value="${this.escape(String(v))}"></option>`).join('')}
+            </datalist>
+            <div class="text-[10px] text-slate-500 mt-1">${anchorOpts.totalDistinct > anchorOpts.values.length ? `Menampilkan ${anchorOpts.values.length} dari ${anchorOpts.totalDistinct} nilai unik &middot; ` : ''}Case-sensitive, sesuai isi data asli pada file SQL.</div>
+          </div>` : '';
+
+      return `
+        <div class="rounded-xl border border-white/10 bg-white/[0.02] p-4" data-cluster-card="${idx}">
+          <div class="flex items-center gap-2 mb-3 flex-wrap">
+            <span class="w-2.5 h-2.5 rounded-full shrink-0 bg-white"></span>
+            <span class="text-[13px] font-semibold text-white">Grup Relasi #${idx + 1}</span>
+            <span class="text-[11px] text-slate-500">${tables.length} tabel &middot; ${cluster.sampleTotal} nilai yang cocok</span>
+          </div>
+          ${this.renderClusterCanvasHtml(cluster, idx)}
+          ${samplesHtml}
+          <div class="text-[11px] font-semibold text-slate-400 mb-2">Pilih tabel &amp; kolom yang ingin diikutkan (centang tabel, klik kolom untuk toggle):</div>
+          ${chipsHtml}
+          ${anchorHtml}
+          <div class="mt-2 relative group">
+            <div class="text-[11px] font-semibold text-slate-400 mb-1">Query SELECT gabungan (live):</div>
+            <pre class="cluster-query text-[10.5px] leading-relaxed font-mono text-teal-200/90 bg-black/30 rounded-md p-2.5 overflow-x-auto whitespace-pre" data-cluster="${idx}">${this.escape(initialQuery)}</pre>
+            <button class="copy-cluster-query-btn absolute top-6 right-1.5 text-[10px] px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-slate-200 opacity-0 group-hover:opacity-100 transition-opacity">Salin</button>
+          </div>
+          <div class="mt-3">
+            <div class="text-[11px] font-semibold text-slate-400 mb-1.5">Hasil data (dari file SQL yang diupload):</div>
+            <div class="cluster-results" data-cluster="${idx}">${this.renderClusterResultsTable(initialResult)}</div>
+          </div>
+        </div>`;
+    }
+
+    renderSummaryModal(query) {
+      const q = (query || '').trim().toLowerCase();
+      const matchesRel = (rel) =>
+        !q || rel.fromTable.toLowerCase().includes(q) || rel.toTable.toLowerCase().includes(q) ||
+        rel.fromCol.toLowerCase().includes(q) || rel.toCol.toLowerCase().includes(q);
+      const matchesCluster = (cluster) =>
+        !q || cluster.members.some(m => m.table.toLowerCase().includes(q) || m.col.toLowerCase().includes(q));
+
+      const schemaRels = this.schema.relations.filter(matchesRel);
+      const clusters = (this.valueClusters || []).filter(matchesCluster);
+
+      const newPairCount = this.valueRelations.filter(r => !r.isAlsoFK).length;
+      this.$.summaryCounts.textContent =
+        `${this.schema.tables.length} tabel · ${this.schema.relations.length} relasi FK · ${(this.valueClusters || []).length} grup kecocokan data (${newPairCount} pasangan baru, ${this.valueRelations.length} total termasuk yang beririsan FK)`;
+
+      const schemaItems = schemaRels.map(rel => {
+        const exampleQuery = this.buildExampleQuery(rel, 'schema');
+        const statsHtml = rel.name ? `<span class="text-[10px] text-slate-500 font-mono">${this.escape(rel.name)}</span>` : '';
+        return `
+          <div class="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <div class="font-mono text-[12.5px] text-slate-200">
+                <span class="text-white font-semibold">${this.escape(rel.fromTable)}</span>.${this.escape(rel.fromCol)}
+                <span class="text-slate-500 mx-1">&#8596;</span>
+                <span class="text-white font-semibold">${this.escape(rel.toTable)}</span>.${this.escape(rel.toCol)}
+              </div>
+              ${statsHtml}
+            </div>
+            <div class="mt-2.5 relative group">
+              <pre class="text-[10.5px] leading-relaxed font-mono text-teal-200/90 bg-black/30 rounded-md p-2.5 overflow-x-auto whitespace-pre">${this.escape(exampleQuery)}</pre>
+              <button class="copy-query-btn absolute top-1.5 right-1.5 text-[10px] px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-slate-200 opacity-0 group-hover:opacity-100 transition-opacity">Salin</button>
+            </div>
+          </div>`;
+      }).join('');
+
+      const clusterItems = clusters.map((c, i) => this.renderClusterCard(c, this.valueClusters.indexOf(c))).join('');
+
+      const allViewRes = this.viewResolutions || [];
+      const unresolvedViews = allViewRes.filter(r => !r.resolved && (!q || r.name.toLowerCase().includes(q)));
+      const resolvedViewCount = allViewRes.filter(r => r.resolved).length;
+      const viewStatusHtml = allViewRes.length ? `
+        <div class="mt-6">
+          <div class="flex items-center gap-2 mb-2.5">
+            <span class="w-2.5 h-2.5 rounded-full shrink-0 bg-amber-400/70"></span>
+            <h4 class="text-[13px] font-semibold text-white">Status VIEW SQL (<code class="font-mono">CREATE VIEW</code>)</h4>
+            <span class="text-[11px] text-slate-500">(${resolvedViewCount} berhasil diikutkan otomatis dalam pencocokan, ${allViewRes.length - resolvedViewCount} tidak bisa)</span>
+          </div>
+          ${unresolvedViews.length ? `
+            <div class="rounded-lg border border-amber-400/20 bg-amber-400/[0.04] p-3">
+              <p class="text-[11px] text-slate-400 mb-2 leading-relaxed">VIEW tidak menyimpan datanya sendiri (tidak ada baris INSERT) — datanya dihitung ulang dari tabel dasarnya saat file di-load. Untuk VIEW dengan struktur sederhana (satu tabel dasar atau rangkaian JOIN biasa) datanya berhasil direkonstruksi otomatis dan ikut dicocokkan seperti tabel biasa. VIEW berikut dilewati karena strukturnya terlalu kompleks untuk direkonstruksi dengan aman (UNION, subquery, atau VIEW yang dibangun dari VIEW lain):</p>
+              <div class="space-y-1">
+                ${unresolvedViews.map(v => `<div class="text-[11px] font-mono flex items-start gap-2"><span class="text-amber-300/80 shrink-0">${this.escape(v.name)}</span><span class="text-slate-500 font-sans">— ${this.escape(v.reason)}</span></div>`).join('')}
+              </div>
+            </div>` : ''}
+        </div>` : '';
+
+      setTimeout(() => this.mountAllClusterCanvases(), 0);
+      this.$.summaryBody.innerHTML = `
+        <div>
+          <div class="flex items-center gap-2 mb-2.5">
+            <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:#5EEAD4"></span>
+            <h4 class="text-[13px] font-semibold text-white">Relasi Skema (Primary Key &harr; Foreign Key)</h4>
+            <span class="text-[11px] text-slate-500">(${schemaRels.length})</span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">${schemaItems || `<p class="text-xs text-slate-500 px-1">Tidak ada relasi FK yang cocok dengan pencarian.</p>`}</div>
+        </div>
+        <div class="mt-6">
+          <div class="flex items-center gap-2 mb-2.5">
+            <span class="w-2.5 h-2.5 rounded-full shrink-0 bg-white"></span>
+            <h4 class="text-[13px] font-semibold text-white">Relasi dari Kecocokan Data (tanpa FK eksplisit)</h4>
+            <span class="text-[11px] text-slate-500">(${clusters.length} grup, bisa lebih dari 2 tabel per grup)</span>
+          </div>
+          <div class="grid grid-cols-1 2xl:grid-cols-2 gap-3">${clusterItems || `<p class="text-xs text-slate-500 px-1">Tidak ada relasi kecocokan data yang cocok dengan pencarian.</p>`}</div>
+        </div>
+        ${viewStatusHtml}`;
+    }
+
+    exportJSON() {
+      if (!this.schema) return;
+      const data = JSON.stringify({ tables: this.schema.tables, relations: this.schema.relations }, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'skema-database.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    window.erdApp = new ERDApp();
+  });
+  </script>
+</body>
+</html>

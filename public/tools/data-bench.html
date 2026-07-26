@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Bench — Pembersih SQL &amp; Excel ke CSV</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink: '#0D1117',
+          surface: '#151B23',
+          surface2: '#1B222C',
+          edge: '#2A3341',
+          cyan: '#4FD1C5',
+          amber: '#F2B84B',
+          danger: '#F87171',
+          success: '#34D399',
+        },
+        fontFamily: {
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+          sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        }
+      }
+    }
+  }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  /* Hanya untuk hal yang tidak bisa ditangani utility Tailwind (font import & scrollbar) */
+  html { scroll-behavior: smooth; }
+  ::selection { background:#4FD1C5; color:#0D1117; }
+  .scrollbar-thin::-webkit-scrollbar{ width:8px; height:8px; }
+  .scrollbar-thin::-webkit-scrollbar-track{ background:transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb{ background:#2A3341; border-radius:9999px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .animate-spin-slow { animation: spin 0.9s linear infinite; }
+</style>
+</head>
+<body class="bg-ink text-slate-200 font-sans min-h-screen antialiased">
+
+  <!-- ============ HEADER ============ -->
+  <header class="border-b border-edge sticky top-0 z-30 bg-ink/90 backdrop-blur">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex items-center justify-between">
+      <div>
+        <p class="font-mono text-[11px] tracking-[0.2em] text-cyan uppercase">Data Bench</p>
+        <h1 class="font-mono text-lg md:text-xl font-semibold text-white mt-1 leading-tight">
+          Pembersih SQL &amp; Konversi Excel → CSV
+        </h1>
+      </div>
+      <div class="hidden md:flex items-center gap-2 font-mono text-xs text-slate-500 border border-edge rounded-full px-3 py-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+        100% lokal di browser
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-10">
+
+    <p class="text-slate-400 text-sm md:text-base max-w-2xl mb-8 md:mb-10">
+      Unggah file <span class="font-mono text-cyan">.sql</span> untuk menghapus seluruh komentar dan baris kosong berlebih agar query lebih padat,
+      atau unggah file <span class="font-mono text-amber">.xlsx / .xls</span> untuk dikonversi menjadi CSV. Semua proses berjalan langsung
+      di perangkat Anda — file tidak pernah dikirim ke server manapun.
+    </p>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+
+      <!-- ============ PANEL SQL ============ -->
+      <section class="bg-surface border border-edge rounded-2xl overflow-hidden flex flex-col">
+        <div class="h-1 bg-cyan"></div>
+        <div class="p-5 md:p-6 flex flex-col flex-1">
+          <div class="flex items-start justify-between gap-3 mb-4">
+            <div>
+              <h2 class="font-mono font-semibold text-white text-base md:text-lg">Pembersih File SQL</h2>
+              <p class="text-slate-400 text-xs md:text-sm mt-1">Hapus komentar (--, #, /* */) &amp; baris kosong berlebih</p>
+            </div>
+            <span class="shrink-0 font-mono text-[10px] uppercase tracking-wider text-cyan border border-cyan/30 bg-cyan/10 rounded-full px-2 py-1">.sql</span>
+          </div>
+
+          <!-- Dropzone SQL -->
+          <label id="sqlDropzone" for="sqlInput"
+            class="group cursor-pointer border-2 border-dashed border-edge hover:border-cyan/60 rounded-xl px-4 py-8 flex flex-col items-center justify-center text-center transition-colors">
+            <svg class="w-8 h-8 text-slate-500 group-hover:text-cyan mb-3 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            <p class="text-sm text-slate-300"><span class="text-cyan font-medium">Klik untuk pilih</span> atau seret file .sql ke sini</p>
+            <p class="text-xs text-slate-500 mt-1">Maksimal 50MB</p>
+            <input id="sqlInput" type="file" accept=".sql" class="hidden">
+          </label>
+
+          <!-- Info file terpilih -->
+          <div id="sqlFileInfo" class="hidden mt-4 font-mono text-xs bg-surface2 border border-edge rounded-lg px-3 py-2.5 flex items-center justify-between gap-2">
+            <span id="sqlFileName" class="truncate text-slate-200"></span>
+            <span id="sqlFileSize" class="shrink-0 text-slate-500"></span>
+          </div>
+
+          <button id="sqlProcessBtn" disabled
+            class="mt-4 w-full disabled:opacity-40 disabled:cursor-not-allowed bg-cyan text-ink font-semibold text-sm rounded-lg py-2.5 hover:brightness-110 active:scale-[0.99] transition">
+            Proses &amp; Bersihkan
+          </button>
+
+          <!-- Hasil SQL -->
+          <div id="sqlResult" class="hidden mt-5 border-t border-edge pt-5">
+            <p class="font-mono text-[11px] uppercase tracking-wider text-slate-500 mb-2">Hasil</p>
+            <div class="font-mono text-xs bg-surface2 border border-edge rounded-lg p-3 space-y-1.5 scrollbar-thin">
+              <div class="flex justify-between"><span class="text-slate-500">Ukuran awal</span><span id="sqlSizeBefore" class="text-slate-200"></span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Ukuran setelah</span><span id="sqlSizeAfter" class="text-slate-200"></span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Baris awal → akhir</span><span id="sqlLines" class="text-slate-200"></span></div>
+              <div class="flex justify-between border-t border-edge pt-1.5 mt-1.5"><span class="text-cyan">Penghematan</span><span id="sqlSaved" class="text-cyan font-semibold"></span></div>
+            </div>
+            <button id="sqlDownloadBtn" class="mt-3 w-full bg-transparent border border-cyan text-cyan font-semibold text-sm rounded-lg py-2.5 hover:bg-cyan/10 transition flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 12m0 0l4.5-4.5M12 12V3"/></svg>
+              Unduh SQL Bersih
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ PANEL EXCEL ============ -->
+      <section class="bg-surface border border-edge rounded-2xl overflow-hidden flex flex-col">
+        <div class="h-1 bg-amber"></div>
+        <div class="p-5 md:p-6 flex flex-col flex-1">
+          <div class="flex items-start justify-between gap-3 mb-4">
+            <div>
+              <h2 class="font-mono font-semibold text-white text-base md:text-lg">Konversi Excel → CSV</h2>
+              <p class="text-slate-400 text-xs md:text-sm mt-1">Ubah sheet Excel menjadi file CSV siap pakai</p>
+            </div>
+            <span class="shrink-0 font-mono text-[10px] uppercase tracking-wider text-amber border border-amber/30 bg-amber/10 rounded-full px-2 py-1">.xlsx</span>
+          </div>
+
+          <!-- Dropzone Excel -->
+          <label id="xlsxDropzone" for="xlsxInput"
+            class="group cursor-pointer border-2 border-dashed border-edge hover:border-amber/60 rounded-xl px-4 py-8 flex flex-col items-center justify-center text-center transition-colors">
+            <svg class="w-8 h-8 text-slate-500 group-hover:text-amber mb-3 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            <p class="text-sm text-slate-300"><span class="text-amber font-medium">Klik untuk pilih</span> atau seret file Excel ke sini</p>
+            <p class="text-xs text-slate-500 mt-1">.xlsx / .xls · Maksimal 50MB</p>
+            <input id="xlsxInput" type="file" accept=".xlsx,.xls" class="hidden">
+          </label>
+
+          <!-- Info file terpilih -->
+          <div id="xlsxFileInfo" class="hidden mt-4 font-mono text-xs bg-surface2 border border-edge rounded-lg px-3 py-2.5 flex items-center justify-between gap-2">
+            <span id="xlsxFileName" class="truncate text-slate-200"></span>
+            <span id="xlsxFileSize" class="shrink-0 text-slate-500"></span>
+          </div>
+
+          <!-- Pilihan sheet -->
+          <div id="xlsxSheetWrap" class="hidden mt-3 space-y-2">
+            <label class="text-xs text-slate-400 font-mono">Sheet</label>
+            <select id="xlsxSheetSelect" class="w-full bg-surface2 border border-edge rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber"></select>
+            <label class="flex items-center gap-2 text-xs text-slate-400 mt-2">
+              <input id="xlsxAllSheets" type="checkbox" class="rounded bg-surface2 border-edge text-amber focus:ring-amber">
+              Konversi semua sheet (unduh sebagai .zip)
+            </label>
+          </div>
+
+          <button id="xlsxProcessBtn" disabled
+            class="mt-4 w-full disabled:opacity-40 disabled:cursor-not-allowed bg-amber text-ink font-semibold text-sm rounded-lg py-2.5 hover:brightness-110 active:scale-[0.99] transition">
+            Proses &amp; Konversi
+          </button>
+
+          <!-- Hasil Excel -->
+          <div id="xlsxResult" class="hidden mt-5 border-t border-edge pt-5">
+            <p class="font-mono text-[11px] uppercase tracking-wider text-slate-500 mb-2">Hasil</p>
+            <div class="font-mono text-xs bg-surface2 border border-edge rounded-lg p-3 space-y-1.5 scrollbar-thin">
+              <div class="flex justify-between"><span class="text-slate-500">Sheet diproses</span><span id="xlsxSheetCount" class="text-slate-200"></span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Total baris</span><span id="xlsxRowCount" class="text-slate-200"></span></div>
+              <div class="flex justify-between border-t border-edge pt-1.5 mt-1.5"><span class="text-amber">Ukuran CSV</span><span id="xlsxCsvSize" class="text-amber font-semibold"></span></div>
+            </div>
+            <button id="xlsxDownloadBtn" class="mt-3 w-full bg-transparent border border-amber text-amber font-semibold text-sm rounded-lg py-2.5 hover:bg-amber/10 transition flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 12m0 0l4.5-4.5M12 12V3"/></svg>
+              <span id="xlsxDownloadLabel">Unduh CSV</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <footer class="mt-10 pt-6 border-t border-edge text-center text-xs text-slate-600 font-mono">
+      Diproses di browser Anda — ditenagai SheetJS &amp; JSZip untuk pengolahan file
+    </footer>
+  </main>
+
+  <!-- ============ MODAL PROSES ============ -->
+  <div id="modalBackdrop" class="hidden fixed inset-0 bg-ink/80 backdrop-blur-sm z-50 flex items-center justify-center px-4">
+    <div id="modalCard" class="w-full max-w-md bg-surface border border-edge rounded-2xl p-6 shadow-2xl">
+
+      <!-- state: processing -->
+      <div id="modalProcessing">
+        <div class="flex items-center gap-3 mb-5">
+          <svg id="modalSpinner" class="w-5 h-5 text-cyan animate-spin-slow" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+            <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          <h3 id="modalTitle" class="font-mono font-semibold text-white text-sm">Memproses file…</h3>
+        </div>
+
+        <ul id="modalSteps" class="space-y-2.5 mb-5"></ul>
+
+        <div class="w-full h-1.5 bg-surface2 rounded-full overflow-hidden">
+          <div id="modalProgressBar" class="h-full bg-cyan transition-all duration-200 ease-out" style="width:0%"></div>
+        </div>
+        <p id="modalProgressLabel" class="text-right text-[11px] font-mono text-slate-500 mt-1.5">0%</p>
+      </div>
+
+      <!-- state: success -->
+      <div id="modalSuccess" class="hidden text-center py-2">
+        <div class="w-12 h-12 rounded-full bg-success/10 border border-success/30 flex items-center justify-center mx-auto mb-4">
+          <svg class="w-6 h-6 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+        </div>
+        <h3 class="font-mono font-semibold text-white text-sm mb-1">Selesai diproses</h3>
+        <p class="text-slate-400 text-xs mb-5">File Anda siap diunduh.</p>
+        <button id="modalCloseSuccessBtn" class="w-full bg-slate-700/40 hover:bg-slate-700/60 text-slate-200 text-sm font-medium rounded-lg py-2.5 transition">Tutup</button>
+      </div>
+
+      <!-- state: error / crash -->
+      <div id="modalError" class="hidden text-center py-2">
+        <div class="w-12 h-12 rounded-full bg-danger/10 border border-danger/30 flex items-center justify-center mx-auto mb-4">
+          <svg class="w-6 h-6 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <h3 class="font-mono font-semibold text-white text-sm mb-1">Proses gagal</h3>
+        <p id="modalErrorMessage" class="text-slate-400 text-xs mb-5 leading-relaxed">Terjadi kesalahan saat memproses file.</p>
+        <div class="flex gap-2">
+          <button id="modalRetryBtn" class="flex-1 bg-danger/15 hover:bg-danger/25 border border-danger/30 text-danger text-sm font-medium rounded-lg py-2.5 transition">Coba Lagi</button>
+          <button id="modalCloseErrorBtn" class="flex-1 bg-slate-700/40 hover:bg-slate-700/60 text-slate-200 text-sm font-medium rounded-lg py-2.5 transition">Tutup</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* =========================================================
+     UTIL UMUM
+  ========================================================= */
+  const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50MB
+  const WATCHDOG_TIMEOUT_MS = 10000;       // anggap macet/crash jika 10 detik tanpa heartbeat
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    const units = ["KB", "MB", "GB"];
+    let val = bytes;
+    let i = -1;
+    do { val /= 1024; i++; } while (val >= 1024 && i < units.length - 1);
+    return val.toFixed(val < 10 ? 2 : 1) + " " + units[i];
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  function stripExt(name) {
+    const idx = name.lastIndexOf(".");
+    return idx === -1 ? name : name.slice(0, idx);
+  }
+
+  /* =========================================================
+     MODAL PROSES (dipakai bersama oleh kedua tool)
+  ========================================================= */
+  const modalBackdrop = document.getElementById("modalBackdrop");
+  const modalProcessing = document.getElementById("modalProcessing");
+  const modalSuccess = document.getElementById("modalSuccess");
+  const modalError = document.getElementById("modalError");
+  const modalSteps = document.getElementById("modalSteps");
+  const modalProgressBar = document.getElementById("modalProgressBar");
+  const modalProgressLabel = document.getElementById("modalProgressLabel");
+  const modalErrorMessage = document.getElementById("modalErrorMessage");
+  const modalCloseSuccessBtn = document.getElementById("modalCloseSuccessBtn");
+  const modalCloseErrorBtn = document.getElementById("modalCloseErrorBtn");
+  const modalRetryBtn = document.getElementById("modalRetryBtn");
+
+  let watchdogTimer = null;
+  let lastHeartbeat = 0;
+  let isProcessing = false;
+  let currentSteps = [];
+  let currentRetryFn = null;
+  let onSuccessClose = null;
+
+  function heartbeat() { lastHeartbeat = Date.now(); }
+
+  function renderSteps(labels, activeIndex) {
+    modalSteps.innerHTML = "";
+    labels.forEach((label, i) => {
+      const li = document.createElement("li");
+      li.className = "flex items-center gap-2.5 text-xs font-mono";
+      let icon;
+      if (i < activeIndex) {
+        icon = '<svg class="w-4 h-4 text-success shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>';
+      } else if (i === activeIndex) {
+        icon = '<svg class="w-4 h-4 text-cyan shrink-0 animate-spin-slow" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle><path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>';
+      } else {
+        icon = '<span class="w-4 h-4 shrink-0 rounded-full border border-edge"></span>';
+      }
+      li.innerHTML = icon + '<span class="' + (i === activeIndex ? "text-slate-200" : i < activeIndex ? "text-slate-500 line-through decoration-slate-700" : "text-slate-600") + '">' + label + '</span>';
+      modalSteps.appendChild(li);
+    });
+  }
+
+  function openModal(stepLabels, retryFn) {
+    currentSteps = stepLabels;
+    currentRetryFn = retryFn;
+    isProcessing = true;
+    heartbeat();
+    modalProcessing.classList.remove("hidden");
+    modalSuccess.classList.add("hidden");
+    modalError.classList.add("hidden");
+    modalBackdrop.classList.remove("hidden");
+    setProgress(0, 0);
+
+    clearInterval(watchdogTimer);
+    watchdogTimer = setInterval(() => {
+      if (!isProcessing) return;
+      if (Date.now() - lastHeartbeat > WATCHDOG_TIMEOUT_MS) {
+        crashModal("Proses berhenti merespons (kemungkinan macet/crash) selama lebih dari " + (WATCHDOG_TIMEOUT_MS / 1000) + " detik. Silakan coba lagi, atau gunakan file dengan ukuran lebih kecil.");
+      }
+    }, 1000);
+  }
+
+  function setProgress(percent, activeStepIndex) {
+    heartbeat();
+    modalProgressBar.style.width = Math.min(100, Math.max(0, percent)) + "%";
+    modalProgressLabel.textContent = Math.round(percent) + "%";
+    renderSteps(currentSteps, activeStepIndex);
+  }
+
+  function successModal(onClose) {
+    isProcessing = false;
+    clearInterval(watchdogTimer);
+    onSuccessClose = onClose || null;
+    setProgress(100, currentSteps.length);
+    modalProcessing.classList.add("hidden");
+    modalSuccess.classList.remove("hidden");
+  }
+
+  function crashModal(message) {
+    isProcessing = false;
+    clearInterval(watchdogTimer);
+    modalErrorMessage.textContent = message || "Terjadi kesalahan yang tidak terduga saat memproses file.";
+    modalProcessing.classList.add("hidden");
+    modalError.classList.remove("hidden");
+  }
+
+  function closeModal() {
+    modalBackdrop.classList.add("hidden");
+    isProcessing = false;
+    clearInterval(watchdogTimer);
+  }
+
+  modalCloseSuccessBtn.addEventListener("click", () => {
+    closeModal();
+    if (onSuccessClose) onSuccessClose();
+  });
+  modalCloseErrorBtn.addEventListener("click", closeModal);
+  modalRetryBtn.addEventListener("click", () => {
+    modalError.classList.add("hidden");
+    if (currentRetryFn) currentRetryFn();
+  });
+
+  // Jaring pengaman global: tangkap error/exception tak terduga selagi proses berjalan
+  window.addEventListener("error", (e) => {
+    if (isProcessing) crashModal("Proses crash tak terduga: " + (e.message || "kesalahan tidak diketahui") + ". Coba ulangi proses.");
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    if (isProcessing) crashModal("Proses crash tak terduga: " + ((e.reason && e.reason.message) || e.reason || "kesalahan tidak diketahui") + ". Coba ulangi proses.");
+  });
+
+  /* =========================================================
+     MESIN PEMBERSIH SQL
+     Single-pass state machine yang sadar terhadap string literal
+     ('...', "...", `...`) sehingga tidak merusak isi data,
+     sambil membuang komentar bergaya "--", "#", dan blok komentar (termasuk
+     MySQL conditional hint), lalu memadatkan baris kosong / spasi berlebih.
+     Diproses per potongan (chunk) via setTimeout agar UI tidak
+     freeze pada file besar, sekaligus memberi progres yang nyata.
+  ========================================================= */
+  function createSqlCleaner() {
+    let state = "NORMAL";
+    const out = [];
+    let lastWasSpace = false;
+    let lastWasNewline = true; // true di awal supaya baris kosong di awal ikut terpangkas
+
+    function push(ch) {
+      out.push(ch);
+      lastWasSpace = false;
+      lastWasNewline = ch === "\n";
+    }
+
+    function processChunk(text, start, end) {
+      let i = start;
+      const n = end;
+      while (i < n) {
+        const c = text[i], c2 = text[i + 1];
+
+        if (state === "NORMAL") {
+          if (c === "'") { push(c); state = "SQ"; i++; continue; }
+          if (c === '"') { push(c); state = "DQ"; i++; continue; }
+          if (c === "`") { push(c); state = "BT"; i++; continue; }
+          if (c === "-" && c2 === "-" && (text[i + 2] === " " || text[i + 2] === "\t" || text[i + 2] === "\n" || text[i + 2] === undefined)) {
+            state = "LINE_COMMENT"; i += 2; continue;
+          }
+          if (c === "#") { state = "LINE_COMMENT"; i += 1; continue; }
+          if (c === "/" && c2 === "*") {
+            if (text[i + 2] === "!") {
+              // MySQL conditional hint /*! ... */ berisi SQL yang tetap dieksekusi -> pertahankan isinya
+              i += 3;
+              while (i < n && /[0-9]/.test(text[i])) i++;
+              state = "HINT";
+              continue;
+            }
+            state = "BLOCK_COMMENT"; i += 2; continue;
+          }
+          if (c === "\n") {
+            if (lastWasNewline) { i++; continue; } // rapatkan baris kosong beruntun
+            push("\n"); i++; continue;
+          }
+          if (c === " " || c === "\t") {
+            if (lastWasSpace || lastWasNewline) { i++; continue; }
+            let j = i;
+            while (j < n && (text[j] === " " || text[j] === "\t")) j++;
+            if (text[j] === "\n" || j >= n) { i = j; continue; } // spasi di akhir baris -> buang
+            out.push(" "); lastWasSpace = true; lastWasNewline = false; i = j; continue;
+          }
+          push(c); i++; continue;
+        }
+
+        if (state === "SQ" || state === "DQ") {
+          const quoteChar = state === "SQ" ? "'" : '"';
+          if (c === "\\" && i + 1 < n) { out.push(c, text[i + 1]); lastWasSpace = false; lastWasNewline = false; i += 2; continue; }
+          if (c === quoteChar) {
+            out.push(c);
+            if (c2 === quoteChar) { out.push(c2); lastWasSpace = false; lastWasNewline = false; i += 2; continue; }
+            state = "NORMAL"; lastWasSpace = false; lastWasNewline = false; i++; continue;
+          }
+          out.push(c); lastWasSpace = false; lastWasNewline = false; i++; continue;
+        }
+
+        if (state === "BT") {
+          if (c === "`") {
+            out.push(c);
+            if (c2 === "`") { out.push(c2); i += 2; continue; }
+            state = "NORMAL"; i++; continue;
+          }
+          out.push(c); i++; continue;
+        }
+
+        if (state === "LINE_COMMENT") {
+          if (c === "\n") { state = "NORMAL"; continue; }
+          i++; continue;
+        }
+
+        if (state === "BLOCK_COMMENT") {
+          if (c === "*" && c2 === "/") { i += 2; state = "NORMAL"; continue; }
+          i++; continue;
+        }
+
+        if (state === "HINT") {
+          if (c === "*" && c2 === "/") { i += 2; state = "NORMAL"; continue; }
+          out.push(c); lastWasSpace = false; lastWasNewline = false; i++; continue;
+        }
+      }
+    }
+
+    return {
+      processChunk,
+      finalize() {
+        let result = out.join("");
+        result = result.replace(/\n+$/, "\n");
+        return result;
+      }
+    };
+  }
+
+  // Menjalankan pembersihan secara asinkron per-chunk agar (a) UI tetap responsif
+  // pada file besar dan (b) progres & heartbeat watchdog punya makna nyata.
+  function cleanSqlAsync(text, onProgress) {
+    return new Promise((resolve, reject) => {
+      try {
+        const cleaner = createSqlCleaner();
+        const CHUNK = 150000; // karakter per tick
+        const total = text.length || 1;
+        let pos = 0;
+
+        function step() {
+          try {
+            const end = Math.min(pos + CHUNK, text.length);
+            cleaner.processChunk(text, pos, end);
+            pos = end;
+            onProgress(pos / total);
+            if (pos < text.length) {
+              setTimeout(step, 0);
+            } else {
+              resolve(cleaner.finalize());
+            }
+          } catch (err) {
+            reject(err);
+          }
+        }
+        step();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  /* =========================================================
+     PANEL 1: PEMBERSIH SQL
+  ========================================================= */
+  const sqlInput = document.getElementById("sqlInput");
+  const sqlDropzone = document.getElementById("sqlDropzone");
+  const sqlFileInfo = document.getElementById("sqlFileInfo");
+  const sqlFileName = document.getElementById("sqlFileName");
+  const sqlFileSize = document.getElementById("sqlFileSize");
+  const sqlProcessBtn = document.getElementById("sqlProcessBtn");
+  const sqlResult = document.getElementById("sqlResult");
+  const sqlSizeBefore = document.getElementById("sqlSizeBefore");
+  const sqlSizeAfter = document.getElementById("sqlSizeAfter");
+  const sqlLines = document.getElementById("sqlLines");
+  const sqlSaved = document.getElementById("sqlSaved");
+  const sqlDownloadBtn = document.getElementById("sqlDownloadBtn");
+
+  let sqlFile = null;
+  let sqlCleanedBlob = null;
+  let sqlCleanedName = "";
+
+  function setSqlFile(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".sql")) {
+      alert("Format tidak didukung. Silakan pilih file dengan ekstensi .sql");
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      alert("Ukuran file melebihi batas 50MB.");
+      return;
+    }
+    sqlFile = file;
+    sqlFileName.textContent = file.name;
+    sqlFileSize.textContent = formatBytes(file.size);
+    sqlFileInfo.classList.remove("hidden");
+    sqlProcessBtn.disabled = false;
+    sqlResult.classList.add("hidden");
+  }
+
+  sqlInput.addEventListener("change", (e) => setSqlFile(e.target.files[0]));
+  ["dragover", "dragenter"].forEach(evt =>
+    sqlDropzone.addEventListener(evt, (e) => { e.preventDefault(); sqlDropzone.classList.add("border-cyan/60"); })
+  );
+  ["dragleave", "drop"].forEach(evt =>
+    sqlDropzone.addEventListener(evt, (e) => { e.preventDefault(); sqlDropzone.classList.remove("border-cyan/60"); })
+  );
+  sqlDropzone.addEventListener("drop", (e) => setSqlFile(e.dataTransfer.files[0]));
+
+  const SQL_STEPS = ["Validasi file", "Membaca file", "Membersihkan komentar & baris kosong", "Menghitung statistik", "Menyiapkan file unduhan"];
+
+  async function runSqlPipeline() {
+    if (!sqlFile) return;
+    openModal(SQL_STEPS, runSqlPipeline);
+    try {
+      // Step 1: validasi
+      setProgress(2, 0);
+      if (!sqlFile.name.toLowerCase().endsWith(".sql")) throw new Error("Ekstensi file bukan .sql");
+      await new Promise(r => setTimeout(r, 150));
+
+      // Step 2: membaca file
+      setProgress(8, 1);
+      const text = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("Gagal membaca file — file mungkin rusak atau tidak dapat diakses."));
+        reader.readAsText(sqlFile, "utf-8");
+      });
+      if (typeof text !== "string" || text.length === 0) throw new Error("File SQL kosong atau tidak dapat dibaca sebagai teks.");
+
+      // Step 3: membersihkan (chunked, progres 15% -> 85%)
+      const cleaned = await cleanSqlAsync(text, (ratio) => {
+        setProgress(15 + ratio * 70, 2);
+      });
+
+      // Step 4: statistik
+      setProgress(90, 3);
+      const originalLines = text.split("\n").length;
+      const cleanedLines = cleaned.split("\n").length;
+      const originalBytes = new Blob([text]).size;
+      const cleanedBytes = new Blob([cleaned]).size;
+      const savedPct = originalBytes > 0 ? (100 - (cleanedBytes / originalBytes) * 100) : 0;
+      await new Promise(r => setTimeout(r, 150));
+
+      // Step 5: siapkan unduhan
+      setProgress(97, 4);
+      sqlCleanedBlob = new Blob([cleaned], { type: "text/plain;charset=utf-8" });
+      sqlCleanedName = stripExt(sqlFile.name) + "_cleaned.sql";
+      await new Promise(r => setTimeout(r, 120));
+
+      sqlSizeBefore.textContent = formatBytes(originalBytes);
+      sqlSizeAfter.textContent = formatBytes(cleanedBytes);
+      sqlLines.textContent = originalLines.toLocaleString("id-ID") + " → " + cleanedLines.toLocaleString("id-ID");
+      sqlSaved.textContent = "-" + savedPct.toFixed(1) + "%";
+      sqlResult.classList.remove("hidden");
+
+      successModal();
+    } catch (err) {
+      crashModal(err && err.message ? err.message : "Terjadi kesalahan tak terduga saat membersihkan file SQL.");
+    }
+  }
+
+  sqlProcessBtn.addEventListener("click", runSqlPipeline);
+  sqlDownloadBtn.addEventListener("click", () => {
+    if (sqlCleanedBlob) downloadBlob(sqlCleanedBlob, sqlCleanedName);
+  });
+
+  /* =========================================================
+     PANEL 2: KONVERSI EXCEL -> CSV
+  ========================================================= */
+  const xlsxInput = document.getElementById("xlsxInput");
+  const xlsxDropzone = document.getElementById("xlsxDropzone");
+  const xlsxFileInfo = document.getElementById("xlsxFileInfo");
+  const xlsxFileName = document.getElementById("xlsxFileName");
+  const xlsxFileSize = document.getElementById("xlsxFileSize");
+  const xlsxSheetWrap = document.getElementById("xlsxSheetWrap");
+  const xlsxSheetSelect = document.getElementById("xlsxSheetSelect");
+  const xlsxAllSheets = document.getElementById("xlsxAllSheets");
+  const xlsxProcessBtn = document.getElementById("xlsxProcessBtn");
+  const xlsxResult = document.getElementById("xlsxResult");
+  const xlsxSheetCount = document.getElementById("xlsxSheetCount");
+  const xlsxRowCount = document.getElementById("xlsxRowCount");
+  const xlsxCsvSize = document.getElementById("xlsxCsvSize");
+  const xlsxDownloadBtn = document.getElementById("xlsxDownloadBtn");
+  const xlsxDownloadLabel = document.getElementById("xlsxDownloadLabel");
+
+  let xlsxFile = null;
+  let xlsxWorkbook = null;
+  let xlsxOutputBlob = null;
+  let xlsxOutputName = "";
+
+  function setXlsxFile(file) {
+    if (!file) return;
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith(".xlsx") && !lower.endsWith(".xls")) {
+      alert("Format tidak didukung. Silakan pilih file dengan ekstensi .xlsx atau .xls");
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      alert("Ukuran file melebihi batas 50MB.");
+      return;
+    }
+    xlsxFile = file;
+    xlsxWorkbook = null;
+    xlsxFileName.textContent = file.name;
+    xlsxFileSize.textContent = formatBytes(file.size);
+    xlsxFileInfo.classList.remove("hidden");
+    xlsxSheetWrap.classList.add("hidden");
+    xlsxProcessBtn.disabled = false;
+    xlsxResult.classList.add("hidden");
+
+    // baca daftar sheet lebih awal supaya user bisa memilih sebelum proses
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
+        xlsxWorkbook = wb;
+        xlsxSheetSelect.innerHTML = "";
+        wb.SheetNames.forEach((name) => {
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name;
+          xlsxSheetSelect.appendChild(opt);
+        });
+        if (wb.SheetNames.length > 1) xlsxSheetWrap.classList.remove("hidden");
+      } catch (err) {
+        // Gagal membaca daftar sheet di awal bukan error fatal — akan divalidasi ulang saat "Proses" ditekan
+        xlsxWorkbook = null;
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  xlsxInput.addEventListener("change", (e) => setXlsxFile(e.target.files[0]));
+  ["dragover", "dragenter"].forEach(evt =>
+    xlsxDropzone.addEventListener(evt, (e) => { e.preventDefault(); xlsxDropzone.classList.add("border-amber/60"); })
+  );
+  ["dragleave", "drop"].forEach(evt =>
+    xlsxDropzone.addEventListener(evt, (e) => { e.preventDefault(); xlsxDropzone.classList.remove("border-amber/60"); })
+  );
+  xlsxDropzone.addEventListener("drop", (e) => setXlsxFile(e.dataTransfer.files[0]));
+
+  const XLSX_STEPS = ["Validasi file", "Membaca workbook", "Mem-parsing sheet", "Mengonversi ke CSV", "Menyiapkan file unduhan"];
+
+  async function runXlsxPipeline() {
+    if (!xlsxFile) return;
+    openModal(XLSX_STEPS, runXlsxPipeline);
+    try {
+      // Step 1: validasi
+      setProgress(2, 0);
+      const lower = xlsxFile.name.toLowerCase();
+      if (!lower.endsWith(".xlsx") && !lower.endsWith(".xls")) throw new Error("Ekstensi file bukan .xlsx / .xls");
+      await new Promise(r => setTimeout(r, 150));
+
+      // Step 2: membaca workbook (pakai cache bila sudah terbaca sebelumnya)
+      setProgress(15, 1);
+      let wb = xlsxWorkbook;
+      if (!wb) {
+        const buffer = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error("Gagal membaca file — file mungkin rusak atau tidak dapat diakses."));
+          reader.readAsArrayBuffer(xlsxFile);
+        });
+        wb = XLSX.read(new Uint8Array(buffer), { type: "array" });
+      }
+      if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
+        throw new Error("Tidak ditemukan sheet pada file ini. Pastikan file Excel valid dan tidak kosong.");
+      }
+      await new Promise(r => setTimeout(r, 150));
+
+      // Step 3: parsing sheet
+      setProgress(45, 2);
+      const convertAll = xlsxAllSheets.checked && wb.SheetNames.length > 1;
+      const targetSheets = convertAll ? wb.SheetNames : [xlsxSheetSelect.value || wb.SheetNames[0]];
+      const csvBySheet = {};
+      let totalRows = 0;
+      targetSheets.forEach((name) => {
+        const ws = wb.Sheets[name];
+        if (!ws) throw new Error('Sheet "' + name + '" tidak ditemukan di dalam workbook.');
+        const csv = XLSX.utils.sheet_to_csv(ws);
+        csvBySheet[name] = csv;
+        const range = XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
+        totalRows += (range.e.r - range.s.r + 1);
+      });
+      await new Promise(r => setTimeout(r, 150));
+
+      // Step 4: mengonversi ke CSV (build output: satu file, atau zip bila multi-sheet)
+      setProgress(70, 3);
+      let outBlob, outName, csvSizeLabel;
+      if (targetSheets.length === 1) {
+        const only = targetSheets[0];
+        outBlob = new Blob([csvBySheet[only]], { type: "text/csv;charset=utf-8" });
+        outName = stripExt(xlsxFile.name) + (wb.SheetNames.length > 1 ? "_" + only : "") + ".csv";
+        csvSizeLabel = formatBytes(outBlob.size);
+      } else {
+        const zip = new JSZip();
+        Object.keys(csvBySheet).forEach((name) => {
+          zip.file(name.replace(/[\\/:*?"<>|]/g, "_") + ".csv", csvBySheet[name]);
+        });
+        outBlob = await zip.generateAsync({ type: "blob" }, (meta) => {
+          setProgress(70 + (meta.percent || 0) * 0.2, 3);
+        });
+        outName = stripExt(xlsxFile.name) + "_csv.zip";
+        csvSizeLabel = formatBytes(outBlob.size) + " (zip)";
+      }
+      await new Promise(r => setTimeout(r, 100));
+
+      // Step 5: siapkan unduhan
+      setProgress(97, 4);
+      xlsxOutputBlob = outBlob;
+      xlsxOutputName = outName;
+      await new Promise(r => setTimeout(r, 120));
+
+      xlsxSheetCount.textContent = targetSheets.length + " dari " + wb.SheetNames.length + " sheet";
+      xlsxRowCount.textContent = totalRows.toLocaleString("id-ID");
+      xlsxCsvSize.textContent = csvSizeLabel;
+      xlsxDownloadLabel.textContent = targetSheets.length === 1 ? "Unduh CSV" : "Unduh ZIP (semua CSV)";
+      xlsxResult.classList.remove("hidden");
+
+      successModal();
+    } catch (err) {
+      crashModal(err && err.message ? err.message : "Terjadi kesalahan tak terduga saat mengonversi file Excel.");
+    }
+  }
+
+  xlsxProcessBtn.addEventListener("click", runXlsxPipeline);
+  xlsxDownloadBtn.addEventListener("click", () => {
+    if (xlsxOutputBlob) downloadBlob(xlsxOutputBlob, xlsxOutputName);
+  });
+
+})();
+</script>
+</body>
+</html>
